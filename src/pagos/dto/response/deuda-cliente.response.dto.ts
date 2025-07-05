@@ -6,6 +6,7 @@ export class DeudaClienteResponseDto {
   periodo: string;
   monto: number;
   montoDescuento: number;
+  montoTotal: number;
   email: string;
   telefono: string;
   fechaRegistro: Date;

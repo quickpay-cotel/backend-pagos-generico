@@ -2,9 +2,10 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PagosModule } from './pagos/pagos.module';
 import { EmpresaModule } from './empresa/empresa.module';
+import { ReportesModule } from './reports/reportes.module';
 
 @Module({
-  imports: [
+  imports: [ReportesModule,
     PagosModule,EmpresaModule,
     ConfigModule.forRoot({
       isGlobal: true, // hace que esté disponible en todos los módulos

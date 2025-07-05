@@ -30,25 +30,25 @@ export class DeudasService {
     tipoPago: string,
     parametroBusqueda: string
   ): Promise<DatosClienteResponseDto> {
-    
     try {
       const deudas =
         await this.pagosDeudasRepository.findByCodClienteOrNumeroDocumento(
-          parametroBusqueda,parseInt(tipoPago)
+          parametroBusqueda,
+          parseInt(tipoPago)
         );
       return {
         codigoCliente: deudas[0].codigo_cliente,
         nombreCompleto: deudas[0].nombre_completo,
         tipoDocumento: deudas[0].tipo_documento,
         numeroDocumento: deudas[0].numero_documento,
-        complementoDocumento: deudas[0].complemento_documento,
-        email: deudas[0].email,
-        telefono: deudas[0].telefono,
+        complementoDocumento: deudas[0].complemento_documento??'',
+        email: deudas[0].email??'',
+        telefono: deudas[0].telefono??'',
       };
     } catch (error) {
       console.log(error);
       throw new HttpException(
-        "No se pudieron obtener las deudas.",
+        "No se encontraron registros de cliente.",
         HttpStatus.INTERNAL_SERVER_ERROR
       );
     }
@@ -61,7 +61,8 @@ export class DeudasService {
     try {
       const deudas =
         await this.pagosDeudasRepository.findByCodClienteOrNumeroDocumento(
-             parametroBusqueda,parseInt(tipoPago)
+          parametroBusqueda,
+          parseInt(tipoPago)
         );
       return deudas.map((obj) => ({
         deudaId: obj.deuda_id,
@@ -69,7 +70,9 @@ export class DeudasService {
         descripcionServicio: obj.descripcion_servicio,
         periodo: obj.periodo,
         monto: obj.monto,
-        montoDescuento: obj.monto_descuento,
+        montoDescuento: obj.monto_descuento ?? 0,
+        montoTotal:
+          parseFloat(obj.monto) - parseFloat(obj.monto_descuento ?? 0),
         email: obj.email,
         telefono: obj.telefono,
         fechaRegistro: obj.fecha_registro,
@@ -77,7 +80,7 @@ export class DeudasService {
     } catch (error) {
       console.log(error);
       throw new HttpException(
-        "No se pudieron obtener las deudas.",
+        "No se encontraron registros de deuda.",
         HttpStatus.INTERNAL_SERVER_ERROR
       );
     }
@@ -103,8 +106,18 @@ export class DeudasService {
       }
 
       // generar qr con BISA
-      const montoTodal = await lstDeudas.reduce((total, deuda) => total + parseFloat(deuda.monto),0);
-      const detalleGlosa = lstDeudas.map((item) =>item.deuda_id + " " + item.codigo_cliente + " " + item.periodo).join(", ");
+      const montoTodal = await lstDeudas.reduce(
+        (total, deuda) =>
+          total +
+          (parseFloat(deuda.monto) - parseFloat(deuda.monto_descuento ?? 0)),
+        0
+      );
+      const detalleGlosa = lstDeudas
+        .map(
+          (item) =>
+            item.deuda_id + " " + item.codigo_cliente + " " + item.periodo
+        )
+        .join(", ");
       const dataGeneraQr = {
         detalleGlosa: detalleGlosa,
         monto: parseFloat(montoTodal.toFixed(2)),
