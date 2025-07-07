@@ -1,6 +1,7 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { promisify } from 'util';
+import axios from "axios";
+import * as fs from "fs";
+import * as path from "path";
+import { promisify } from "util";
 export class FuncionesGenerales {
   public async checkFileExistence(filePath: string): Promise<boolean> {
     const access = promisify(fs.access);
@@ -15,7 +16,7 @@ export class FuncionesGenerales {
     // Lee el archivo de la ruta especificada
     const fileBuffer = fs.readFileSync(filePath);
     // Convierte el archivo a Base64
-    const base64File = fileBuffer.toString('base64');
+    const base64File = fileBuffer.toString("base64");
     // Determina el tipo MIME basado en la extensión del archivo
     const nombreArchivoConExt = path.basename(filePath);
     const mimeType = this.getMimeType(nombreArchivoConExt);
@@ -26,8 +27,8 @@ export class FuncionesGenerales {
   public puedePagar() {
     const horaLimite = Number(process.env.HORA_CORTE_PAGO) || 17;
 
-    const ahora = new Date().toLocaleString('en-US', {
-      timeZone: 'America/La_Paz',
+    const ahora = new Date().toLocaleString("en-US", {
+      timeZone: "America/La_Paz",
     });
     const fechaBolivia = new Date(ahora);
 
@@ -61,21 +62,21 @@ export class FuncionesGenerales {
   private getMimeType(fileName: string): string {
     const extname = path.extname(fileName).toLowerCase();
     switch (extname) {
-      case '.png':
-        return 'image/png';
-      case '.jpg':
-      case '.jpeg':
-        return 'image/jpeg';
-      case '.gif':
-        return 'image/gif';
-      case '.bmp':
-        return 'image/bmp';
-      case '.webp':
-        return 'image/webp';
-      case '.svg':
-        return 'image/svg+xml';
+      case ".png":
+        return "image/png";
+      case ".jpg":
+      case ".jpeg":
+        return "image/jpeg";
+      case ".gif":
+        return "image/gif";
+      case ".bmp":
+        return "image/bmp";
+      case ".webp":
+        return "image/webp";
+      case ".svg":
+        return "image/svg+xml";
       default:
-        return 'application/octet-stream';
+        return "application/octet-stream";
     }
   }
   public esJSON(str) {
@@ -85,5 +86,10 @@ export class FuncionesGenerales {
       return false;
     }
     return true;
+  }
+  // Función auxiliar para descargar y convertir a base64
+  public async downloadFileAsBase64(url: string): Promise<string> {
+    const response = await axios.get(url, { responseType: "arraybuffer" });
+    return Buffer.from(response.data, "binary").toString("base64");
   }
 }

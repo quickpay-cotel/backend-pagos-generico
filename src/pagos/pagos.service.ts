@@ -23,6 +23,8 @@ import { PagosDeudasRepository } from "src/common/repository/pagos/pagos.deudas.
 
 import { PagosComprobanteReciboRepository } from "src/common/repository/pagos/pagos.comprobante_recibo.repository";
 import { ApiIllaService } from "src/common/external-services/api.illa.service";
+import { IsipassGraphqlService } from "src/common/external-services/isipass.graphql.service";
+import { FuncionesGenerales } from "src/common/utils/funciones.generales";
 
 @Injectable()
 export class PagosService {
@@ -42,6 +44,7 @@ export class PagosService {
     private readonly pagosErrorLogsRepository: PagosErrorLogsRepository,
     private readonly apiIllaService: ApiIllaService,
     private readonly usuarioEmpresaConfiguracionRepository: UsuarioEmpresaConfiguracionRepository,
+    private readonly isipassGraphqlService: IsipassGraphqlService,
     @Inject("DB_CONNECTION") private db: IDatabase<any>
   ) {}
 
@@ -139,7 +142,11 @@ export class PagosService {
 
     //nroFactura = String(nroFactura).split("-")[1];
 
-    //let resFact = await this.generarFacturaILLA(confirmaPagoQrDto.alias, transactionInsert.transaccion_id, vNumeroUnico + "", nroFactura);
+    await this.generarFacturaISIPASS(
+      confirmaPagoQrDto.alias,
+      transactionInsert.transaccion_id,
+      vNumeroUnico + ""
+    );
 
     // GENERAR RECIBOS
     await this.generarRecibo(
@@ -181,7 +188,6 @@ export class PagosService {
     });
     return template;
   }
-
   private formatearFechaProcesadoDeSIP(dateString: string) {
     // Convertir la cadena en un objeto Date
     const date = new Date(dateString);
@@ -198,7 +204,6 @@ export class PagosService {
 
     return formattedDate;
   }
-
   private async generarRecibo(
     vAlias: string,
     vTransactionId: number,
@@ -234,15 +239,16 @@ export class PagosService {
                 ).toFixed(2)}
             </td>
           </tr>
-          ` )
+          `
+          )
           .join("");
 
-   
         const totalPagado = datosDeuda
           .reduce(
             (acc, item) =>
               acc +
-              ((parseFloat(item.monto ?? "0") - parseFloat(item.monto_descuento ?? "0")) || 0),
+              (parseFloat(item.monto ?? "0") -
+                parseFloat(item.monto_descuento ?? "0") || 0),
             0
           )
           .toFixed(2);
@@ -315,7 +321,6 @@ export class PagosService {
       });
     }
   }
-
   private getMethodName(): string {
     const stack = new Error().stack;
     if (!stack) return "UnknownMethod";
@@ -325,7 +330,6 @@ export class PagosService {
 
     return stackLines[2].trim().split(" ")[1]; // Extrae el nombre del método
   }
-
   async obtenerComprobantes(pAlias: string) {
     let nombres: string[] = [];
     try {
@@ -333,18 +337,139 @@ export class PagosService {
       let recibos =
         await this.pagosComprobanteReciboRepository.findByAlias(pAlias);
       for (var recibo of recibos) {
-        nombres.push(path.parse(recibo.ruta_pdf).name);
+        nombres.push(path.basename(recibo.ruta_pdf));
       }
       let facturas =
         await this.pagosComprobanteFacturaRepository.findByAlias(pAlias);
       for (var factura of facturas) {
-        nombres.push(path.parse(factura.ruta_pdf).name);
+        nombres.push(path.basename(factura.ruta_pdf));
       }
       return nombres;
       //return nombres;
     } catch (error) {
       console.log(error);
       throw new HttpException(error, HttpStatus.NOT_FOUND);
+    }
+  }
+  private async generarFacturaISIPASS(
+    vAlias: string,
+    vTransactionId: number,
+    vNumeroUnico: string
+  ): Promise<any> {
+    const ipServidor = os.hostname();
+    const fechaInicio = new Date();
+    try {
+      const datosDeuda = await this.pagosDeudasRepository.findByAlias(vAlias);
+      if (datosDeuda.length == 0) {
+        throw new Error("No se encontraron deudas para generar la factura");
+      }
+      const qrGenerado =
+        await this.pagosQrGeneradoRepository.findByAlias(vAlias);
+      if (!qrGenerado) {
+        throw new Error("QR no generado por QUICKPAY al generar factura");
+      }
+      const resFacGenerado = await this.isipassGraphqlService.crearFactura(
+        datosDeuda,
+        qrGenerado
+      );
+
+      const facturaCompraVentaCreate =
+        resFacGenerado?.data?.facturaCompraVentaCreate || {};
+
+      const { representacionGrafica, sucursal, puntoVenta } =
+        facturaCompraVentaCreate;
+
+      const pdfUrl = representacionGrafica?.pdf;
+      const xmlUrl = representacionGrafica?.xml;
+
+      if (!pdfUrl || !xmlUrl) {
+        throw new Error(
+          "No se recibieron URLs de PDF o XML desde crearFactura"
+        );
+      }
+
+      let pdfBase64: string;
+      let xmlBase64: string;
+      let filePathPdf: string;
+      let filePathXml: string;
+
+      try {
+        const funcionesGenerales = new FuncionesGenerales();
+        pdfBase64 = await funcionesGenerales.downloadFileAsBase64(pdfUrl);
+        xmlBase64 = await funcionesGenerales.downloadFileAsBase64(xmlUrl);
+
+        filePathPdf = path.join(
+          this.storePath,
+          "facturas",
+          `factura-${vAlias}_${vNumeroUnico}.pdf`
+        );
+        filePathXml = path.join(
+          this.storePath,
+          "facturas",
+          `factura-${vAlias}_${vNumeroUnico}.xml`
+        );
+
+        fs.writeFileSync(filePathPdf, Buffer.from(pdfBase64, "base64"));
+        fs.writeFileSync(filePathXml, Buffer.from(xmlBase64, "base64"));
+        console.log(
+          "Archivos (factura XML y PDF) descargados y almacenados exitosamente"
+        );
+      } catch (error) {
+        throw new Error(
+          `Error al descargar o guardar los archivos (XML y PDF): ${error.message}`
+        );
+      }
+
+      // REGISTRA FACTURA
+      let transaccion =
+        await this.pagosTransaccionesRepository.findByAlias(vAlias);
+      await this.pagosComprobanteFacturaRepository.create({
+        transaccion_id: transaccion[0].transaccion_id,
+
+        // Datos que retorna ISIPASS
+        codigo_cliente: facturaCompraVentaCreate?.cliente?.codigoCliente,
+        numero_documento: facturaCompraVentaCreate?.cliente?.numeroDocumento,
+        razon_social: facturaCompraVentaCreate?.cliente?.razonSocial,
+        complemento: facturaCompraVentaCreate?.cliente?.complemento,
+        email: facturaCompraVentaCreate?.cliente?.email,
+
+        cuf: facturaCompraVentaCreate?.cuf,
+        numero_factura: facturaCompraVentaCreate?.numeroFactura,
+        estado: facturaCompraVentaCreate?.state,
+
+        url_pdf: representacionGrafica?.pdf,
+        url_xml: representacionGrafica?.xml,
+        url_sin: representacionGrafica?.sin,
+        url_rollo: representacionGrafica?.rollo,
+
+        sucursal_codigo: sucursal?.codigo,
+        punto_venta_codigo: puntoVenta?.codigo,
+
+        // otros campos
+        ruta_xml: filePathXml,
+        ruta_pdf: filePathPdf,
+
+        estado_id: 1000,
+      });
+      this.pagosTransaccionesRepository.cambiarEstadoTransactionById(
+        vTransactionId,
+        1011
+      );
+    } catch (error) {
+      this.pagosTransaccionesRepository.cambiarEstadoTransactionById(
+        vTransactionId,
+        1013
+      );
+      await this.pagosErrorLogsRepository.create({
+        alias: vAlias,
+        metodo: this.getMethodName() + " - generar factura",
+        mensaje: error.message,
+        stack_trace: error.stack,
+        ip_servidor: ipServidor,
+        fecha_inicio: fechaInicio,
+        fecha_fin: new Date(),
+        parametros: { alias: vAlias, transactin_id: vTransactionId },
+      });
     }
   }
 }
