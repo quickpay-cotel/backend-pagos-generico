@@ -10,9 +10,10 @@ import { DeudasService } from './deudas.service';
 import { NotificationsGateway } from 'src/notificaciones/notifications.gateway';
 import { DominiosController } from './dominios.controller';
 import { DominiosService } from './dominios.service';
+import { EmailModule } from 'src/common/correos/email.module';
 
 @Module({
-  imports: [DatabaseModule, RepositoryModule, ExternalServiceModule],
+  imports: [DatabaseModule, RepositoryModule, ExternalServiceModule,EmailModule],
   controllers: [PagosController, DeudasController, DominiosController],
   providers: [NotificationsGateway, PagosService, DeudasService, DominiosService],
   exports: [],

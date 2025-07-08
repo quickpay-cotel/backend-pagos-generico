@@ -1,3 +1,4 @@
+import { EmailService } from "./../common/correos/email.service";
 import { UsuarioEmpresaConfiguracionRepository } from "./../common/repository/usuario/usuario.empresa_configuracion.repository";
 import { HttpException, HttpStatus, Inject, Injectable } from "@nestjs/common";
 
@@ -22,7 +23,6 @@ import { PagosComprobanteFacturaRepository } from "src/common/repository/pagos/p
 import { PagosDeudasRepository } from "src/common/repository/pagos/pagos.deudas.repository";
 
 import { PagosComprobanteReciboRepository } from "src/common/repository/pagos/pagos.comprobante_recibo.repository";
-import { ApiIllaService } from "src/common/external-services/api.illa.service";
 import { IsipassGraphqlService } from "src/common/external-services/isipass.graphql.service";
 import { FuncionesGenerales } from "src/common/utils/funciones.generales";
 
@@ -42,9 +42,9 @@ export class PagosService {
     private readonly notificationsGateway: NotificationsGateway,
     private readonly pagosDeudasRepository: PagosDeudasRepository,
     private readonly pagosErrorLogsRepository: PagosErrorLogsRepository,
-    private readonly apiIllaService: ApiIllaService,
     private readonly usuarioEmpresaConfiguracionRepository: UsuarioEmpresaConfiguracionRepository,
     private readonly isipassGraphqlService: IsipassGraphqlService,
+    private readonly emailService: EmailService,
     @Inject("DB_CONNECTION") private db: IDatabase<any>
   ) {}
 
@@ -137,11 +137,6 @@ export class PagosService {
 
     const vNumeroUnico = FuncionesFechas.generarNumeroUnico();
 
-    // GENERAR FACTURA
-    //let nroFactura = await this.pagosComprobanteFacturaRepository.findNroFactura();
-
-    //nroFactura = String(nroFactura).split("-")[1];
-
     await this.generarFacturaISIPASS(
       confirmaPagoQrDto.alias,
       transactionInsert.transaccion_id,
@@ -177,6 +172,79 @@ export class PagosService {
       transactionInsert.transaccion_id,
       1009
     );
+
+    // NOTIFICAR POR CORREO AL CLIENTE
+    try {
+      const reciboPath = path.join(
+        this.storePath +
+          "/recibos/" +
+          "recibo-" +
+          confirmaPagoQrDto.alias +
+          "_" +
+          vNumeroUnico +
+          ".pdf"
+      );
+      const facturaPathPdf = path.join(
+        this.storePath +
+          "/facturas/" +
+          "factura-" +
+          confirmaPagoQrDto.alias +
+          "_" +
+          vNumeroUnico +
+          ".pdf"
+      );
+      const facturaPathXml = path.join(
+        this.storePath +
+          "/facturas/" +
+          "factura-" +
+          confirmaPagoQrDto.alias +
+          "_" +
+          vNumeroUnico +
+          ".xml"
+      );
+      const lstDeudas = await this.pagosDeudasRepository.findByAlias(confirmaPagoQrDto.alias);
+
+      // Calcular el total a pagar sumando (monto - monto_descuento) de cada item
+      const totalAPagar = lstDeudas.reduce((acc, item) => {
+        const monto = parseFloat(item.monto ?? "0");
+        const montoDescuento = parseFloat(item.monto_descuento ?? "0");
+        return acc + (monto - montoDescuento);
+      }, 0);
+
+      // notificar por correo al cliente con las comprobantes de pago, facturas y recibos
+      let paymentDataConfirmado = {
+        numeroTransaccion: confirmaPagoQrDto.alias,
+        monto: totalAPagar,
+        moneda: "Bs",
+        fecha: confirmaPagoQrDto.fechaproceso,
+        nombreCliente: confirmaPagoQrDto.nombreCliente,
+      };
+
+      let correoEnviado =
+        await this.emailService.sendMailNotifyPaymentAndAttachmentsMailtrap(
+          correoCliente,
+          "Confirmación de Pago Recibida - Pruebas",
+          paymentDataConfirmado,
+          reciboPath,
+          facturaPathPdf,
+          facturaPathXml
+        );
+      this.pagosTransaccionesRepository.update(
+        transactionInsert.transaccion_id,
+        { correo_enviado: correoEnviado }
+      );
+    } catch (error) {
+      await this.pagosErrorLogsRepository.create({
+        alias: confirmaPagoQrDto.alias,
+        metodo: this.getMethodName() + " - notificar correo electronico",
+        mensaje: error.message,
+        stack_trace: error.stack,
+        ip_servidor: ipServidor,
+        fecha_inicio: fechaInicio,
+        fecha_fin: new Date(),
+        parametros: confirmaPagoQrDto,
+      });
+    }
   }
 
   // Función para reemplazar los marcadores en la plantilla
@@ -211,6 +279,7 @@ export class PagosService {
   ): Promise<any> {
     const ipServidor = os.hostname();
     const fechaInicio = new Date();
+    let montoTotalPagado: number = 0; // Inicializar el total pagado
     try {
       // Generar contenido HTML dinámico para RECIBO
 
@@ -252,6 +321,8 @@ export class PagosService {
             0
           )
           .toFixed(2);
+
+        montoTotalPagado = totalPagado;
 
         const htmlContent = this.renderTemplate(
           this.plantillasPath + "/recibo.html",

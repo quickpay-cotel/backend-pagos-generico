@@ -24,6 +24,41 @@ export class PagosTransaccionesRepository {
       : await this.db.one(query, params);
     return result;
   }
+  
+  async update(
+    id: number,
+    data: Record<string, any>,
+    t?: IDatabase<any>
+  ): Promise<any> {
+    const columnas = Object.keys(data);
+    const valores = Object.values(data);
+
+    if (columnas.length === 0) {
+      throw new Error("No hay campos para actualizar");
+    }
+
+    // Construir SET dinámicamente: "col1 = $1, col2 = $2, ..."
+    const setClause = columnas
+      .map((col, index) => `${col} = $${index + 1}`)
+      .join(", ");
+
+    // Último parámetro es el ID
+    const query = `
+    UPDATE pagos.transacciones
+    SET ${setClause}
+    WHERE transaccion_id = $${columnas.length + 1}
+    RETURNING *
+  `;
+
+    const params = [...valores, id];
+
+    const result = t
+      ? await t.one(query, params)
+      : await this.db.one(query, params);
+
+    return result;
+  }
+
   async findByAlias(pAlias): Promise<any> {
     const query = `  select t.* from pagos.datosconfirmado_qr dc
         inner join pagos.transacciones t on dc.datosconfirmado_qr_id = t.datosconfirmado_qr_id  and t.estado_id = 1000

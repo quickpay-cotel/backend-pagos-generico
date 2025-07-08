@@ -24,7 +24,7 @@ export class IsipassGraphqlService {
             descripcion: "${item.descripcion_servicio}",
             cantidad: 1,
             unidadMedida: 58,
-            precioUnitario: ${(monto - montoDescuento).toFixed(2)},
+            precioUnitario: ${(monto).toFixed(2)},
             montoDescuento: ${montoDescuento.toFixed(2)}
           }
         `;

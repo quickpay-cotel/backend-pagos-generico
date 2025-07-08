@@ -4,6 +4,7 @@ import { PagosModule } from "./pagos/pagos.module";
 import { EmpresaModule } from "./empresa/empresa.module";
 import { ServeStaticModule } from "@nestjs/serve-static";
 import { join } from "path";
+import { EmailModule } from "./common/correos/email.module";
 
 @Module({
   imports: [
@@ -15,7 +16,6 @@ import { join } from "path";
       rootPath: join(__dirname, "..", "store/recibos"),
       serveRoot: "/api/v1/recibos",
     }),
-
     PagosModule,
     EmpresaModule,
     ConfigModule.forRoot({
