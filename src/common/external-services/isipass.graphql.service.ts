@@ -15,16 +15,16 @@ export class IsipassGraphqlService {
     if (lstDeudas[0].tipo_documento == "NIT") tipoDoc = 5;
 
     const detalleItems = lstDeudas.map((item) => {
-        const monto = item.monto ?? 0;
+        const precioUnitario = item.precio_unitario ?? 0;
         const montoDescuento = item.monto_descuento ?? 0;
         return `
           {
-            codigoProductoSin: "96520",
-            codigoProducto: "${item.codigo_servicio}",
-            descripcion: "${item.descripcion_servicio}",
+            codigoProductoSin: "${item.codigo_producto_sin}",
+            codigoProducto: "${item.codigo_producto}",
+            descripcion: "${item.descripcion}",
             cantidad: 1,
             unidadMedida: 58,
-            precioUnitario: ${(monto).toFixed(2)},
+            precioUnitario: ${(precioUnitario).toFixed(2)},
             montoDescuento: ${montoDescuento.toFixed(2)}
           }
         `;

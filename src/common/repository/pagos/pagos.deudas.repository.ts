@@ -8,8 +8,8 @@ export class PagosDeudasRepository {
     this.db = db; // Inyectamos la conexión de pg-promise
   }
   async findByAlias(pAlias): Promise<any> {
-    const query = ` select d.deuda_id,d.carga_id,d.codigo_cliente,d.nombre_completo,d.tipo_documento,d.numero_documento,
-d.complemento_documento ,d.tipo_pago_id,tipoPago.descripcion tipo_pago ,d.codigo_servicio ,d.descripcion_servicio ,d.periodo ,d.monto ,d.monto_descuento ,
+    const query = `     select d.deuda_id,d.carga_id,d.codigo_cliente,d.nombre_completo,d.tipo_documento,d.numero_documento,
+d.complemento_documento ,d.tipo_pago_id,tipoPago.descripcion tipo_pago ,d.codigo_producto ,d.descripcion ,d.periodo,d.cantidad ,d.precio_unitario ,d.monto_descuento ,
 d.email ,d.telefono ,d.fecha_registro 
 from pagos.reserva_deuda rd 
 inner join pagos.qr_generado qg on qg.qr_generado_id = rd.qr_generado_id and qg.estado_id = 1000
@@ -28,7 +28,6 @@ and qg.alias = $1 and rd.estado_id = 1000 and rd.estado_reserva_id = 1004`;
   ): Promise<any> {
     const query = ` select d.* from pagos.deudas d where (d.codigo_cliente ILIKE  $1 or d.numero_documento ILIKE  $1 or d.nombre_completo ILIKE  $1) 
     and d.estado_id = 1000 and d.tipo_pago_id = $2 order by d.periodo desc;`;
-    //const params = [pCodClienteOrNroDocumento];
     const params = [`%${parametroBusqueda}%`,tipoPago];
     const result = await this.db.many(query, params);
     return result;

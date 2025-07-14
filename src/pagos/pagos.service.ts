@@ -1,37 +1,37 @@
-import { EmailService } from "./../common/correos/email.service";
-import { UsuarioEmpresaConfiguracionRepository } from "./../common/repository/usuario/usuario.empresa_configuracion.repository";
-import { HttpException, HttpStatus, Inject, Injectable } from "@nestjs/common";
+import { EmailService } from './../common/correos/email.service';
+import { UsuarioEmpresaConfiguracionRepository } from './../common/repository/usuario/usuario.empresa_configuracion.repository';
+import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 
-import { FuncionesFechas } from "src/common/utils/funciones.fechas";
-import { IDatabase } from "pg-promise";
+import { FuncionesFechas } from 'src/common/utils/funciones.fechas';
+import { IDatabase } from 'pg-promise';
 
-import { PagosQrGeneradoRepository } from "src/common/repository/pagos/pagos.qr_gerenado.repository";
-import { ConfirmaPagoQrDto } from "./dto/request/confirma-pago-qr.dto";
-import { NotificationsGateway } from "src/notificaciones/notifications.gateway";
+import { PagosQrGeneradoRepository } from 'src/common/repository/pagos/pagos.qr_gerenado.repository';
+import { ConfirmaPagoQrDto } from './dto/request/confirma-pago-qr.dto';
+import { NotificationsGateway } from 'src/notificaciones/notifications.gateway';
 
-import * as fs from "fs";
-import * as path from "path";
-import * as os from "os";
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 //import * as puppeteer from 'puppeteer';
-import puppeteer from "puppeteer";
+import puppeteer from 'puppeteer';
 
-import { PagosTransaccionesRepository } from "src/common/repository/pagos/pagos.transacciones.repository";
-import { PagosReservaDeudaRepository } from "src/common/repository/pagos/pagos.reserva.deuda.repository";
-import { PagosDatosConfirmadoQrRepository } from "src/common/repository/pagos/pagos.datosconfirmado_qr.repository";
-import { PagosErrorLogsRepository } from "src/common/repository/pagos/pagos.error_logs.repository";
-import { PagosComprobanteFacturaRepository } from "src/common/repository/pagos/pagos.comprobante_factura.repository";
-import { PagosDeudasRepository } from "src/common/repository/pagos/pagos.deudas.repository";
+import { PagosTransaccionesRepository } from 'src/common/repository/pagos/pagos.transacciones.repository';
+import { PagosReservaDeudaRepository } from 'src/common/repository/pagos/pagos.reserva.deuda.repository';
+import { PagosDatosConfirmadoQrRepository } from 'src/common/repository/pagos/pagos.datosconfirmado_qr.repository';
+import { PagosErrorLogsRepository } from 'src/common/repository/pagos/pagos.error_logs.repository';
+import { PagosComprobanteFacturaRepository } from 'src/common/repository/pagos/pagos.comprobante_factura.repository';
+import { PagosDeudasRepository } from 'src/common/repository/pagos/pagos.deudas.repository';
 
-import { PagosComprobanteReciboRepository } from "src/common/repository/pagos/pagos.comprobante_recibo.repository";
-import { IsipassGraphqlService } from "src/common/external-services/isipass.graphql.service";
-import { FuncionesGenerales } from "src/common/utils/funciones.generales";
+import { PagosComprobanteReciboRepository } from 'src/common/repository/pagos/pagos.comprobante_recibo.repository';
+import { IsipassGraphqlService } from 'src/common/external-services/isipass.graphql.service';
+import { FuncionesGenerales } from 'src/common/utils/funciones.generales';
 
 @Injectable()
 export class PagosService {
   //private storePath = path.join(process.cwd(), 'store'); // Ruta de la carpeta 'store'
 
-  private storePath = path.posix.join(process.cwd(), "store");
-  private plantillasPath = path.posix.join(process.cwd(), "plantillas");
+  private storePath = path.posix.join(process.cwd(), 'store');
+  private plantillasPath = path.posix.join(process.cwd(), 'plantillas');
   constructor(
     private readonly pagosReservaDeudaRepository: PagosReservaDeudaRepository,
     private readonly pagosQrGeneradoRepository: PagosQrGeneradoRepository,
@@ -45,60 +45,48 @@ export class PagosService {
     private readonly usuarioEmpresaConfiguracionRepository: UsuarioEmpresaConfiguracionRepository,
     private readonly isipassGraphqlService: IsipassGraphqlService,
     private readonly emailService: EmailService,
-    @Inject("DB_CONNECTION") private db: IDatabase<any>
+    @Inject('DB_CONNECTION') private db: IDatabase<any>,
   ) {}
 
   async confirmaPagoQr(confirmaPagoQrDto: ConfirmaPagoQrDto) {
     const ipServidor = os.hostname();
     const fechaInicio = new Date();
-    let correoCliente = "sinemailcotel@quickpay.com.bo";
+    let correoCliente = 'sinemailcotel@quickpay.com.bo';
     let transactionInsert: any;
     try {
       // REGISTRAR CONFIRMACIÓN DE PAGO
-      const qrGenerado = await this.pagosQrGeneradoRepository.findByAlias(
-        confirmaPagoQrDto.alias
-      );
-      if (!qrGenerado) throw new Error("QR no generado por QUICKPAY");
+      const qrGenerado = await this.pagosQrGeneradoRepository.findByAlias(confirmaPagoQrDto.alias);
+      if (!qrGenerado) throw new Error('QR no generado por QUICKPAY');
 
       correoCliente = qrGenerado.email;
-      if (qrGenerado.monto != confirmaPagoQrDto.monto)
-        throw new Error("Monto no es igual al QR generado");
+      if (qrGenerado.monto != confirmaPagoQrDto.monto) throw new Error('Monto no es igual al QR generado');
 
-      const deudasReservados =
-        await this.pagosReservaDeudaRepository.findByQrGeneradoId(
-          qrGenerado.qr_generado_id
-        );
-      if (!deudasReservados.length)
-        throw new Error("No existe pagos reservados");
+      const deudasReservados = await this.pagosReservaDeudaRepository.findByQrGeneradoId(qrGenerado.qr_generado_id);
+      if (!deudasReservados.length) throw new Error('No existe pagos reservados');
 
-      const transaccion = await this.pagosTransaccionesRepository.findByAlias(
-        confirmaPagoQrDto.alias
-      );
-      if (transaccion.length > 0)
-        throw new Error("Transacción ya se encuentra Registrado en QUICKPAY");
+      const transaccion = await this.pagosTransaccionesRepository.findByAlias(confirmaPagoQrDto.alias);
+      if (transaccion.length > 0) throw new Error('Transacción ya se encuentra Registrado en QUICKPAY');
 
-      await this.notificationsGateway.sendNotification("notification", {
+      await this.notificationsGateway.sendNotification('notification', {
         alias: confirmaPagoQrDto.alias,
-        mensaje: "PROCESANDO PAGO",
+        mensaje: 'PROCESANDO PAGO',
       });
 
       await this.db.tx(async (t) => {
-        const insertConfirmQr =
-          await this.pagosDatosConfirmadoQrRepository.create({
-            qr_generado_id: qrGenerado.qr_generado_id,
-            alias_sip: confirmaPagoQrDto.alias,
-            numero_orden_originante_sip:
-              confirmaPagoQrDto.numeroOrdenOriginante,
-            monto_sip: confirmaPagoQrDto.monto,
-            id_qr_sip: confirmaPagoQrDto.idQr,
-            moneda_sip: confirmaPagoQrDto.moneda,
-            fecha_proceso_sip: confirmaPagoQrDto.fechaproceso,
-            cuenta_cliente_sip: confirmaPagoQrDto.cuentaCliente,
-            nombre_cliente_sip: confirmaPagoQrDto.nombreCliente,
-            documento_cliente_sip: confirmaPagoQrDto.documentoCliente,
-            json_sip: confirmaPagoQrDto,
-            estado_id: 1000,
-          });
+        const insertConfirmQr = await this.pagosDatosConfirmadoQrRepository.create({
+          qr_generado_id: qrGenerado.qr_generado_id,
+          alias_sip: confirmaPagoQrDto.alias,
+          numero_orden_originante_sip: confirmaPagoQrDto.numeroOrdenOriginante,
+          monto_sip: confirmaPagoQrDto.monto,
+          id_qr_sip: confirmaPagoQrDto.idQr,
+          moneda_sip: confirmaPagoQrDto.moneda,
+          fecha_proceso_sip: confirmaPagoQrDto.fechaproceso,
+          cuenta_cliente_sip: confirmaPagoQrDto.cuentaCliente,
+          nombre_cliente_sip: confirmaPagoQrDto.nombreCliente,
+          documento_cliente_sip: confirmaPagoQrDto.documentoCliente,
+          json_sip: confirmaPagoQrDto,
+          estado_id: 1000,
+        });
         // registra transaccion realizado
         transactionInsert = await this.pagosTransaccionesRepository.create({
           datosconfirmado_qr_id: insertConfirmQr.datosconfirmado_qr_id,
@@ -110,16 +98,13 @@ export class PagosService {
         });
         // cambair estado de deudas reservados a PAGADO
         for (const deudaReservado of deudasReservados) {
-          await this.pagosReservaDeudaRepository.cambiarEstadoReservaByDeudaId(
-            deudaReservado.deuda_id,
-            1005
-          );
+          await this.pagosReservaDeudaRepository.cambiarEstadoReservaByDeudaId(deudaReservado.deuda_id, 1005);
         }
       });
     } catch (error) {
       await this.pagosErrorLogsRepository.create({
         alias: confirmaPagoQrDto.alias,
-        metodo: this.getMethodName() + " - recibir pago",
+        metodo: this.getMethodName() + ' - recibir pago',
         mensaje: error.message,
         stack_trace: error.stack,
         ip_servidor: ipServidor,
@@ -127,28 +112,17 @@ export class PagosService {
         fecha_fin: new Date(),
         parametros: confirmaPagoQrDto,
       });
-      throw new HttpException(
-        error.message || "Error interno del servidor",
-        HttpStatus.NOT_FOUND
-      );
+      throw new HttpException(error.message || 'Error interno del servidor', HttpStatus.NOT_FOUND);
     }
 
     // ============================
 
     const vNumeroUnico = FuncionesFechas.generarNumeroUnico();
 
-    await this.generarFacturaISIPASS(
-      confirmaPagoQrDto.alias,
-      transactionInsert.transaccion_id,
-      vNumeroUnico + ""
-    );
+    await this.generarFacturaISIPASS(confirmaPagoQrDto.alias, transactionInsert.transaccion_id, vNumeroUnico + '');
 
     // GENERAR RECIBOS
-    await this.generarRecibo(
-      confirmaPagoQrDto.alias,
-      transactionInsert.transaccion_id,
-      vNumeroUnico + ""
-    );
+    await this.generarRecibo(confirmaPagoQrDto.alias, transactionInsert.transaccion_id, vNumeroUnico + '');
 
     // NOTIFICAR POR SOCKET AL FRONTEND
     const datosPago = {
@@ -159,84 +133,45 @@ export class PagosService {
       fechaproceso: confirmaPagoQrDto.fechaproceso,
       documentoCliente: confirmaPagoQrDto.documentoCliente,
     };
-    datosPago.fechaproceso = this.formatearFechaProcesadoDeSIP(
-      datosPago.fechaproceso
-    );
-    await this.notificationsGateway.sendNotification("notification", {
+    datosPago.fechaproceso = this.formatearFechaProcesadoDeSIP(datosPago.fechaproceso);
+    await this.notificationsGateway.sendNotification('notification', {
       alias: confirmaPagoQrDto.alias,
       datosPago: datosPago,
-      mensaje: "PAGO REALIZADO",
+      mensaje: 'PAGO REALIZADO',
     });
     // confirmar pagooo
-    this.pagosTransaccionesRepository.cambiarEstadoTransactionById(
-      transactionInsert.transaccion_id,
-      1009
-    );
+    this.pagosTransaccionesRepository.cambiarEstadoTransactionById(transactionInsert.transaccion_id, 1009);
 
     // NOTIFICAR POR CORREO AL CLIENTE
     try {
-      const reciboPath = path.join(
-        this.storePath +
-          "/recibos/" +
-          "recibo-" +
-          confirmaPagoQrDto.alias +
-          "_" +
-          vNumeroUnico +
-          ".pdf"
-      );
-      const facturaPathPdf = path.join(
-        this.storePath +
-          "/facturas/" +
-          "factura-" +
-          confirmaPagoQrDto.alias +
-          "_" +
-          vNumeroUnico +
-          ".pdf"
-      );
-      const facturaPathXml = path.join(
-        this.storePath +
-          "/facturas/" +
-          "factura-" +
-          confirmaPagoQrDto.alias +
-          "_" +
-          vNumeroUnico +
-          ".xml"
-      );
+      const reciboPath = path.join(this.storePath + '/recibos/' + 'recibo-' + confirmaPagoQrDto.alias + '_' + vNumeroUnico + '.pdf');
+      const facturaPathPdf = path.join(this.storePath + '/facturas/' + 'factura-' + confirmaPagoQrDto.alias + '_' + vNumeroUnico + '.pdf');
+      const facturaPathXml = path.join(this.storePath + '/facturas/' + 'factura-' + confirmaPagoQrDto.alias + '_' + vNumeroUnico + '.xml');
       const lstDeudas = await this.pagosDeudasRepository.findByAlias(confirmaPagoQrDto.alias);
 
-      // Calcular el total a pagar sumando (monto - monto_descuento) de cada item
       const totalAPagar = lstDeudas.reduce((acc, item) => {
-        const monto = parseFloat(item.monto ?? "0");
-        const montoDescuento = parseFloat(item.monto_descuento ?? "0");
-        return acc + (monto - montoDescuento);
+        const precioUnitario = parseFloat(item.precio_unitario ?? '0');
+        const cantidad = parseFloat(item.cantidad ?? '1'); // por defecto 1 si no hay cantidad
+        const montoDescuento = parseFloat(item.monto_descuento ?? '0');
+
+        return acc + (precioUnitario * cantidad - montoDescuento);
       }, 0);
 
       // notificar por correo al cliente con las comprobantes de pago, facturas y recibos
       let paymentDataConfirmado = {
         numeroTransaccion: confirmaPagoQrDto.alias,
         monto: totalAPagar,
-        moneda: "Bs",
+        moneda: 'Bs',
         fecha: confirmaPagoQrDto.fechaproceso,
         nombreCliente: confirmaPagoQrDto.nombreCliente,
       };
 
-      let correoEnviado =
-        await this.emailService.sendMailNotifyPaymentAndAttachmentsMailtrap(
-          correoCliente,
-          "Confirmación de Pago Recibida - Pruebas",
-          paymentDataConfirmado,
-          reciboPath,
-          facturaPathPdf,
-          facturaPathXml
-        );
-      this.pagosTransaccionesRepository.update(
-        transactionInsert.transaccion_id,
-        { correo_enviado: correoEnviado }
-      );
+      let correoEnviado = await this.emailService.sendMailNotifyPaymentAndAttachmentsMailtrap(correoCliente, 'Confirmación de Pago Recibida - Pruebas', paymentDataConfirmado, reciboPath, facturaPathPdf, facturaPathXml);
+      this.pagosTransaccionesRepository.update(transactionInsert.transaccion_id, { correo_enviado: correoEnviado });
     } catch (error) {
       await this.pagosErrorLogsRepository.create({
         alias: confirmaPagoQrDto.alias,
-        metodo: this.getMethodName() + " - notificar correo electronico",
+        metodo: this.getMethodName() + ' - notificar correo electronico',
         mensaje: error.message,
         stack_trace: error.stack,
         ip_servidor: ipServidor,
@@ -249,9 +184,9 @@ export class PagosService {
 
   // Función para reemplazar los marcadores en la plantilla
   private renderTemplate(templatePath: string, data: any): string {
-    let template = fs.readFileSync(templatePath, "utf8");
+    let template = fs.readFileSync(templatePath, 'utf8');
     Object.keys(data).forEach((key) => {
-      const regex = new RegExp(`{{${key}}}`, "g");
+      const regex = new RegExp(`{{${key}}}`, 'g');
       template = template.replace(regex, data[key]);
     });
     return template;
@@ -261,128 +196,84 @@ export class PagosService {
     const date = new Date(dateString);
 
     // Obtener los componentes de la fecha
-    const day = String(date.getDate()).padStart(2, "0"); // Día con 2 dígitos
-    const month = String(date.getMonth() + 1).padStart(2, "0"); // Mes con 2 dígitos
+    const day = String(date.getDate()).padStart(2, '0'); // Día con 2 dígitos
+    const month = String(date.getMonth() + 1).padStart(2, '0'); // Mes con 2 dígitos
     const year = date.getFullYear(); // Año
-    const hours = String(date.getHours()).padStart(2, "0"); // Horas con 2 dígitos
-    const minutes = String(date.getMinutes()).padStart(2, "0"); // Minutos con 2 dígitos
+    const hours = String(date.getHours()).padStart(2, '0'); // Horas con 2 dígitos
+    const minutes = String(date.getMinutes()).padStart(2, '0'); // Minutos con 2 dígitos
 
     // Formato final: dd/MM/yyyy HH:mm
     const formattedDate = `${day}/${month}/${year} ${hours}:${minutes}`;
 
     return formattedDate;
   }
-  private async generarRecibo(
-    vAlias: string,
-    vTransactionId: number,
-    vNumeroUnico: string
-  ): Promise<any> {
+  private async generarRecibo(vAlias: string, vTransactionId: number, vNumeroUnico: string): Promise<any> {
     const ipServidor = os.hostname();
     const fechaInicio = new Date();
     let montoTotalPagado: number = 0; // Inicializar el total pagado
     try {
       // Generar contenido HTML dinámico para RECIBO
 
-      const transaccion =
-        await this.pagosTransaccionesRepository.findByAlias(vAlias);
+      const transaccion = await this.pagosTransaccionesRepository.findByAlias(vAlias);
       const datosDeuda = await this.pagosDeudasRepository.findByAlias(vAlias);
 
       if (datosDeuda.length > 0) {
-        const datosConfiguracion =
-          await this.usuarioEmpresaConfiguracionRepository.DatosConfiguracionEmpresaByDeudaId(
-            parseInt(datosDeuda[0].deuda_id)
-          );
+        const datosConfiguracion = await this.usuarioEmpresaConfiguracionRepository.DatosConfiguracionEmpresaByDeudaId(parseInt(datosDeuda[0].deuda_id));
         // Construir las filas de la tabla para todos los items de datosDeuda
         const tableRows = datosDeuda
           .map(
             (item) => `
             <tr>
-              <td>${item.descripcion_servicio ?? ""}</td>
-              <td style="text-align: center;">${item.periodo ?? ""}</td>
-              <td style="text-align: center;">${item.monto ?? "0"}</td>
-              <td style="text-align: center;">${item.monto_descuento ?? "0"}</td>
+              <td>${item.descripcion_servicio ?? ''}</td>
+              <td style="text-align: center;">${item.periodo ?? ''}</td>
+              <td style="text-align: center;">${item.monto ?? '0'}</td>
+              <td style="text-align: center;">${item.monto_descuento ?? '0'}</td>
               <td style="text-align: right;">
-                ${(
-                  (parseFloat(item.monto ?? 0) || 0) -
-                  (parseFloat(item.monto_descuento ?? 0) || 0)
-                ).toFixed(2)}
+                ${((parseFloat(item.monto ?? 0) || 0) - (parseFloat(item.monto_descuento ?? 0) || 0)).toFixed(2)}
             </td>
           </tr>
-          `
+          `,
           )
-          .join("");
+          .join('');
 
-        const totalPagado = datosDeuda
-          .reduce(
-            (acc, item) =>
-              acc +
-              (parseFloat(item.monto ?? "0") -
-                parseFloat(item.monto_descuento ?? "0") || 0),
-            0
-          )
-          .toFixed(2);
+        const totalPagado = datosDeuda.reduce((acc, item) => acc + (parseFloat(item.monto ?? '0') - parseFloat(item.monto_descuento ?? '0') || 0), 0).toFixed(2);
 
         montoTotalPagado = totalPagado;
 
-        const htmlContent = this.renderTemplate(
-          this.plantillasPath + "/recibo.html",
-          {
-            nroRecibo: vAlias.slice(-8) ?? 0,
-            nombreCliente: datosDeuda[0].nombre_completo ?? "",
-            logo: datosConfiguracion.logo_base64 ?? "",
-            concepto: datosDeuda[0].tipo_pago,
-            fechaPago: FuncionesFechas.obtenerFechaFormato,
-            metodoPago: "QR",
-            tableRows,
-            totalPagado,
-          }
-        );
+        const htmlContent = this.renderTemplate(this.plantillasPath + '/recibo.html', {
+          nroRecibo: vAlias.slice(-8) ?? 0,
+          nombreCliente: datosDeuda[0].nombre_completo ?? '',
+          logo: datosConfiguracion.logo_base64 ?? '',
+          concepto: datosDeuda[0].tipo_pago,
+          fechaPago: FuncionesFechas.obtenerFechaFormato,
+          metodoPago: 'QR',
+          tableRows,
+          totalPagado,
+        });
         // modo ROOT  no es recomendable, pero pide el almalinux
         const browser = await puppeteer.launch({
-          args: ["--no-sandbox", "--disable-setuid-sandbox"],
+          args: ['--no-sandbox', '--disable-setuid-sandbox'],
         });
         const page = await browser.newPage();
-        await page.setContent(htmlContent, { waitUntil: "load" });
-        const pdfBuffer = Buffer.from(await page.pdf({ format: "A4" }));
+        await page.setContent(htmlContent, { waitUntil: 'load' });
+        const pdfBuffer = Buffer.from(await page.pdf({ format: 'A4' }));
         await browser.close();
         // Guardar el buffer como un archivo PDF
-        fs.writeFileSync(
-          this.storePath +
-            "/recibos/" +
-            "recibo-" +
-            vAlias +
-            "_" +
-            vNumeroUnico +
-            ".pdf",
-          pdfBuffer
-        );
+        fs.writeFileSync(this.storePath + '/recibos/' + 'recibo-' + vAlias + '_' + vNumeroUnico + '.pdf', pdfBuffer);
         await this.pagosComprobanteReciboRepository.create({
           identificador: 0,
           transaccion_id: transaccion[0].transaccion_id,
-          ruta_pdf:
-            this.storePath +
-            "/recibos/" +
-            "recibo-" +
-            vAlias +
-            "_" +
-            vNumeroUnico +
-            ".pdf",
+          ruta_pdf: this.storePath + '/recibos/' + 'recibo-' + vAlias + '_' + vNumeroUnico + '.pdf',
           fecha_emision: new Date(),
           estado_id: 1000,
         });
       }
-      this.pagosTransaccionesRepository.cambiarEstadoTransactionById(
-        vTransactionId,
-        1012
-      ); // PAGO GENERA RECIBO
+      this.pagosTransaccionesRepository.cambiarEstadoTransactionById(vTransactionId, 1012); // PAGO GENERA RECIBO
     } catch (error) {
-      this.pagosTransaccionesRepository.cambiarEstadoTransactionById(
-        vTransactionId,
-        1013
-      ); // PAGO FALLADO
+      this.pagosTransaccionesRepository.cambiarEstadoTransactionById(vTransactionId, 1013); // PAGO FALLADO
       await this.pagosErrorLogsRepository.create({
         alias: vAlias,
-        metodo: this.getMethodName() + " - generar recibo",
+        metodo: this.getMethodName() + ' - generar recibo',
         mensaje: error.message,
         stack_trace: error.stack,
         ip_servidor: ipServidor,
@@ -394,24 +285,22 @@ export class PagosService {
   }
   private getMethodName(): string {
     const stack = new Error().stack;
-    if (!stack) return "UnknownMethod";
+    if (!stack) return 'UnknownMethod';
 
-    const stackLines = stack.split("\n");
-    if (stackLines.length < 3) return "UnknownMethod";
+    const stackLines = stack.split('\n');
+    if (stackLines.length < 3) return 'UnknownMethod';
 
-    return stackLines[2].trim().split(" ")[1]; // Extrae el nombre del método
+    return stackLines[2].trim().split(' ')[1]; // Extrae el nombre del método
   }
   async obtenerComprobantes(pAlias: string) {
     let nombres: string[] = [];
     try {
       // verificar estado de la transaccion
-      let recibos =
-        await this.pagosComprobanteReciboRepository.findByAlias(pAlias);
+      let recibos = await this.pagosComprobanteReciboRepository.findByAlias(pAlias);
       for (var recibo of recibos) {
         nombres.push(path.basename(recibo.ruta_pdf));
       }
-      let facturas =
-        await this.pagosComprobanteFacturaRepository.findByAlias(pAlias);
+      let facturas = await this.pagosComprobanteFacturaRepository.findByAlias(pAlias);
       for (var factura of facturas) {
         nombres.push(path.basename(factura.ruta_pdf));
       }
@@ -422,41 +311,29 @@ export class PagosService {
       throw new HttpException(error, HttpStatus.NOT_FOUND);
     }
   }
-  private async generarFacturaISIPASS(
-    vAlias: string,
-    vTransactionId: number,
-    vNumeroUnico: string
-  ): Promise<any> {
+  private async generarFacturaISIPASS(vAlias: string, vTransactionId: number, vNumeroUnico: string): Promise<any> {
     const ipServidor = os.hostname();
     const fechaInicio = new Date();
     try {
       const datosDeuda = await this.pagosDeudasRepository.findByAlias(vAlias);
       if (datosDeuda.length == 0) {
-        throw new Error("No se encontraron deudas para generar la factura");
+        throw new Error('No se encontraron deudas para generar la factura');
       }
-      const qrGenerado =
-        await this.pagosQrGeneradoRepository.findByAlias(vAlias);
+      const qrGenerado = await this.pagosQrGeneradoRepository.findByAlias(vAlias);
       if (!qrGenerado) {
-        throw new Error("QR no generado por QUICKPAY al generar factura");
+        throw new Error('QR no generado por QUICKPAY al generar factura');
       }
-      const resFacGenerado = await this.isipassGraphqlService.crearFactura(
-        datosDeuda,
-        qrGenerado
-      );
+      const resFacGenerado = await this.isipassGraphqlService.crearFactura(datosDeuda, qrGenerado);
 
-      const facturaCompraVentaCreate =
-        resFacGenerado?.data?.facturaCompraVentaCreate || {};
+      const facturaCompraVentaCreate = resFacGenerado?.data?.facturaCompraVentaCreate || {};
 
-      const { representacionGrafica, sucursal, puntoVenta } =
-        facturaCompraVentaCreate;
+      const { representacionGrafica, sucursal, puntoVenta } = facturaCompraVentaCreate;
 
       const pdfUrl = representacionGrafica?.pdf;
       const xmlUrl = representacionGrafica?.xml;
 
       if (!pdfUrl || !xmlUrl) {
-        throw new Error(
-          "No se recibieron URLs de PDF o XML desde crearFactura"
-        );
+        throw new Error('No se recibieron URLs de PDF o XML desde crearFactura');
       }
 
       let pdfBase64: string;
@@ -469,31 +346,18 @@ export class PagosService {
         pdfBase64 = await funcionesGenerales.downloadFileAsBase64(pdfUrl);
         xmlBase64 = await funcionesGenerales.downloadFileAsBase64(xmlUrl);
 
-        filePathPdf = path.join(
-          this.storePath,
-          "facturas",
-          `factura-${vAlias}_${vNumeroUnico}.pdf`
-        );
-        filePathXml = path.join(
-          this.storePath,
-          "facturas",
-          `factura-${vAlias}_${vNumeroUnico}.xml`
-        );
+        filePathPdf = path.join(this.storePath, 'facturas', `factura-${vAlias}_${vNumeroUnico}.pdf`);
+        filePathXml = path.join(this.storePath, 'facturas', `factura-${vAlias}_${vNumeroUnico}.xml`);
 
-        fs.writeFileSync(filePathPdf, Buffer.from(pdfBase64, "base64"));
-        fs.writeFileSync(filePathXml, Buffer.from(xmlBase64, "base64"));
-        console.log(
-          "Archivos (factura XML y PDF) descargados y almacenados exitosamente"
-        );
+        fs.writeFileSync(filePathPdf, Buffer.from(pdfBase64, 'base64'));
+        fs.writeFileSync(filePathXml, Buffer.from(xmlBase64, 'base64'));
+        console.log('Archivos (factura XML y PDF) descargados y almacenados exitosamente');
       } catch (error) {
-        throw new Error(
-          `Error al descargar o guardar los archivos (XML y PDF): ${error.message}`
-        );
+        throw new Error(`Error al descargar o guardar los archivos (XML y PDF): ${error.message}`);
       }
 
       // REGISTRA FACTURA
-      let transaccion =
-        await this.pagosTransaccionesRepository.findByAlias(vAlias);
+      let transaccion = await this.pagosTransaccionesRepository.findByAlias(vAlias);
       await this.pagosComprobanteFacturaRepository.create({
         transaccion_id: transaccion[0].transaccion_id,
 
@@ -522,18 +386,12 @@ export class PagosService {
 
         estado_id: 1000,
       });
-      this.pagosTransaccionesRepository.cambiarEstadoTransactionById(
-        vTransactionId,
-        1011
-      );
+      this.pagosTransaccionesRepository.cambiarEstadoTransactionById(vTransactionId, 1011);
     } catch (error) {
-      this.pagosTransaccionesRepository.cambiarEstadoTransactionById(
-        vTransactionId,
-        1013
-      );
+      this.pagosTransaccionesRepository.cambiarEstadoTransactionById(vTransactionId, 1013);
       await this.pagosErrorLogsRepository.create({
         alias: vAlias,
-        metodo: this.getMethodName() + " - generar factura",
+        metodo: this.getMethodName() + ' - generar factura',
         mensaje: error.message,
         stack_trace: error.stack,
         ip_servidor: ipServidor,
