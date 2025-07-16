@@ -20,6 +20,7 @@ export class ConfiguracionService {
           logoFilename: datosConfiguracion.logo_filename,
           logoBase64: datosConfiguracion.logo_base64,
           colorPrimario: datosConfiguracion.color_primario,
+          colorSecundario: datosConfiguracion.color_secundario,
           slugEmpresa: datosConfiguracion.slug_empresa,
         };
       }

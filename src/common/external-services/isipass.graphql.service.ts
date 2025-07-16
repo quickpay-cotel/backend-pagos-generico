@@ -17,15 +17,16 @@ export class IsipassGraphqlService {
     const detalleItems = lstDeudas.map((item) => {
         const precioUnitario = item.precio_unitario ?? 0;
         const montoDescuento = item.monto_descuento ?? 0;
+        
         return `
           {
             codigoProductoSin: "${item.codigo_producto_sin}",
             codigoProducto: "${item.codigo_producto}",
             descripcion: "${item.descripcion}",
-            cantidad: 1,
+            cantidad: ${item.cantidad},
             unidadMedida: 58,
-            precioUnitario: ${(precioUnitario).toFixed(2)},
-            montoDescuento: ${montoDescuento.toFixed(2)}
+            precioUnitario: ${Number(precioUnitario).toFixed(2)},
+            montoDescuento: ${Number(montoDescuento).toFixed(2)}
           }
         `;
       })

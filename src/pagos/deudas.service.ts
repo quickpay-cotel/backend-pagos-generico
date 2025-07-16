@@ -46,7 +46,7 @@ export class DeudasService {
   async buscarDeudaCliente(tipoPago: string, parametroBusqueda: string): Promise<DeudaClienteResponseDto[]> {
     console.log(tipoPago);
     try {
-      const deudas = await this.pagosDeudasRepository.findByCodClienteOrNumeroDocumento(parametroBusqueda, parseInt(tipoPago));
+      const deudas = await this.pagosDeudasRepository.deudasPendientesByCriterioBusqueda(parametroBusqueda, parseInt(tipoPago));
       return deudas.map((obj) => ({
         deudaId: obj.deuda_id,
         codigoProducto: obj.codigo_producto,

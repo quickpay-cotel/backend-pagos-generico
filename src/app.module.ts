@@ -16,6 +16,10 @@ import { EmailModule } from "./common/correos/email.module";
       rootPath: join(__dirname, "..", "store/recibos"),
       serveRoot: "/api/v1/recibos",
     }),
+    ServeStaticModule.forRoot({
+      rootPath: join(__dirname, "..", "store/logos"),
+      serveRoot: "/api/v1/logos",
+    }),
     PagosModule,
     EmpresaModule,
     ConfigModule.forRoot({

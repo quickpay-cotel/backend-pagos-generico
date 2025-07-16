@@ -9,7 +9,7 @@ export class PagosDeudasRepository {
   }
   async findByAlias(pAlias): Promise<any> {
     const query = `     select d.deuda_id,d.carga_id,d.codigo_cliente,d.nombre_completo,d.tipo_documento,d.numero_documento,
-d.complemento_documento ,d.tipo_pago_id,tipoPago.descripcion tipo_pago ,d.codigo_producto ,d.descripcion ,d.periodo,d.cantidad ,d.precio_unitario ,d.monto_descuento ,
+d.complemento_documento ,d.tipo_pago_id,tipoPago.descripcion tipo_pago ,d.codigo_producto,d.codigo_producto_sin ,d.descripcion ,d.periodo,d.cantidad ,d.precio_unitario ,d.monto_descuento ,
 d.email ,d.telefono ,d.fecha_registro 
 from pagos.reserva_deuda rd 
 inner join pagos.qr_generado qg on qg.qr_generado_id = rd.qr_generado_id and qg.estado_id = 1000
@@ -22,13 +22,28 @@ and qg.alias = $1 and rd.estado_id = 1000 and rd.estado_reserva_id = 1004`;
     return result;
   }
 
-  async findByCodClienteOrNumeroDocumento(
-    parametroBusqueda: string,
-     tipoPago:number,
-  ): Promise<any> {
-    const query = ` select d.* from pagos.deudas d where (d.codigo_cliente ILIKE  $1 or d.numero_documento ILIKE  $1 or d.nombre_completo ILIKE  $1) 
-    and d.estado_id = 1000 and d.tipo_pago_id = $2 order by d.periodo desc;`;
-    const params = [`%${parametroBusqueda}%`,tipoPago];
+  async findByCodClienteOrNumeroDocumento(parametroBusqueda: string, tipoPago: number): Promise<any> {
+    const query = ` 
+    select d.* from pagos.deudas d where (d.codigo_cliente ILIKE  $1 or d.numero_documento ILIKE  $1 or d.nombre_completo ILIKE  $1) 
+    and d.estado_id = 1000 and d.tipo_pago_id = $2 order by d.periodo desc;
+    `;
+    const params = [`%${parametroBusqueda}%`, tipoPago];
+    const result = await this.db.many(query, params);
+    return result;
+  }
+
+  async deudasPendientesByCriterioBusqueda(parametroBusqueda: string, tipoPago: number): Promise<any> {
+    const query = ` 
+       select d.* from pagos.deudas d 
+   where (d.codigo_cliente ILIKE  $1 or d.numero_documento ILIKE  $1 or d.nombre_completo ILIKE  $1) 
+    and d.estado_id = 1000 and d.tipo_pago_id = $2 and not exists(
+      select * from pagos.reserva_deuda rd
+	 inner join pagos.datosconfirmado_qr dc on dc.qr_generado_id = rd.qr_generado_id and rd.estado_id = 1000
+	 inner join pagos.transacciones t on t.datosconfirmado_qr_id  = dc.datosconfirmado_qr_id and t.estado_id = 1000
+	 where  rd.deuda_id = d.deuda_id and rd.estado_id = 1000
+    ) order by d.periodo desc;
+    `;
+    const params = [`%${parametroBusqueda}%`, tipoPago];
     const result = await this.db.many(query, params);
     return result;
   }
@@ -40,7 +55,7 @@ and qg.alias = $1 and rd.estado_id = 1000 and rd.estado_reserva_id = 1004`;
     return result;
   }
 
-   async findByAliasPagado(pAlias): Promise<any> {
+  async findByAliasPagado(pAlias): Promise<any> {
     const query = `select d.* from cotel.reserva_deuda rd 
 inner join cotel.qr_generado qg on  qg.qr_generado_id = rd.qr_generado_id and qg.estado_id = 1000
 inner join cotel.deudas d on d.deuda_id  = rd.deuda_id and d.estado_id = 1000
@@ -49,5 +64,4 @@ where qg.alias = $1 and rd.estado_id = 1000 and rd.estado_reserva_id = 1005`;
     const result = await this.db.many(query, params);
     return result;
   }
-  
 }

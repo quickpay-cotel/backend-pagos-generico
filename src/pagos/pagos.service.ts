@@ -119,6 +119,7 @@ export class PagosService {
 
     const vNumeroUnico = FuncionesFechas.generarNumeroUnico();
 
+    // GENERAR FACTURA
     await this.generarFacturaISIPASS(confirmaPagoQrDto.alias, transactionInsert.transaccion_id, vNumeroUnico + '');
 
     // GENERAR RECIBOS
@@ -157,13 +158,16 @@ export class PagosService {
         return acc + (precioUnitario * cantidad - montoDescuento);
       }, 0);
 
+      const datosConfiguracion = await this.usuarioEmpresaConfiguracionRepository.DatosConfiguracionEmpresaByAlias(confirmaPagoQrDto.alias);
+
       // notificar por correo al cliente con las comprobantes de pago, facturas y recibos
       let paymentDataConfirmado = {
         numeroTransaccion: confirmaPagoQrDto.alias,
         monto: totalAPagar,
         moneda: 'Bs',
         fecha: confirmaPagoQrDto.fechaproceso,
-        nombreCliente: confirmaPagoQrDto.nombreCliente,
+        logoUrl: process.env.URL_LOGO + datosConfiguracion.logo_filename,
+        nombreEmpresa: datosConfiguracion.nombre_empresa,
       };
 
       let correoEnviado = await this.emailService.sendMailNotifyPaymentAndAttachmentsMailtrap(correoCliente, 'Confirmación de Pago Recibida - Pruebas', paymentDataConfirmado, reciboPath, facturaPathPdf, facturaPathXml);
@@ -219,29 +223,44 @@ export class PagosService {
 
       if (datosDeuda.length > 0) {
         const datosConfiguracion = await this.usuarioEmpresaConfiguracionRepository.DatosConfiguracionEmpresaByDeudaId(parseInt(datosDeuda[0].deuda_id));
+
         // Construir las filas de la tabla para todos los items de datosDeuda
         const tableRows = datosDeuda
-          .map(
-            (item) => `
-            <tr>
-              <td>${item.descripcion_servicio ?? ''}</td>
-              <td style="text-align: center;">${item.periodo ?? ''}</td>
-              <td style="text-align: center;">${item.monto ?? '0'}</td>
-              <td style="text-align: center;">${item.monto_descuento ?? '0'}</td>
-              <td style="text-align: right;">
-                ${((parseFloat(item.monto ?? 0) || 0) - (parseFloat(item.monto_descuento ?? 0) || 0)).toFixed(2)}
-            </td>
-          </tr>
-          `,
-          )
+          .map((item) => {
+            const cantidad = parseFloat(item.cantidad ?? '0');
+            const precioUnitario = parseFloat(item.precio_unitario ?? '0');
+            const descuento = parseFloat(item.monto_descuento ?? '0');
+            const montoFinal = cantidad * precioUnitario - descuento;
+
+            return `
+      <tr>
+        <td>${item.descripcion ?? ''}</td>
+        <td style="text-align: center;">${item.periodo ?? ''}</td>
+        <td style="text-align: center;">${cantidad}</td>
+        <td style="text-align: center;">${precioUnitario.toFixed(2)}</td>
+        <td style="text-align: center;">${descuento.toFixed(2)}</td>
+        <td style="text-align: right;">${montoFinal.toFixed(2)}</td>
+      </tr>
+    `;
+          })
           .join('');
 
-        const totalPagado = datosDeuda.reduce((acc, item) => acc + (parseFloat(item.monto ?? '0') - parseFloat(item.monto_descuento ?? '0') || 0), 0).toFixed(2);
+        // Calcular el total pagado correctamente
+        const totalPagado = datosDeuda
+          .reduce((acc, item) => {
+            const cantidad = parseFloat(item.cantidad ?? '0');
+            const precioUnitario = parseFloat(item.precio_unitario ?? '0');
+            const descuento = parseFloat(item.monto_descuento ?? '0');
+            const montoFinal = cantidad * precioUnitario - descuento;
+            return acc + montoFinal;
+          }, 0)
+          .toFixed(2);
 
         montoTotalPagado = totalPagado;
 
         const htmlContent = this.renderTemplate(this.plantillasPath + '/recibo.html', {
           nroRecibo: vAlias.slice(-8) ?? 0,
+          nombreComercio: datosConfiguracion.nombre_empresa,
           nombreCliente: datosDeuda[0].nombre_completo ?? '',
           logo: datosConfiguracion.logo_base64 ?? '',
           concepto: datosDeuda[0].tipo_pago,
