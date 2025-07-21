@@ -1,25 +1,28 @@
 import { Module } from "@nestjs/common";
-import { ConfigModule } from "@nestjs/config";
+import { ConfigModule,ConfigService } from "@nestjs/config";
 import { PagosModule } from "./pagos/pagos.module";
 import { EmpresaModule } from "./empresa/empresa.module";
-import { ServeStaticModule } from "@nestjs/serve-static";
+import { ServeStaticModule, ServeStaticModuleOptions } from "@nestjs/serve-static";
 import { join } from "path";
 import { EmailModule } from "./common/correos/email.module";
 
 @Module({
   imports: [
-    ServeStaticModule.forRoot({
-      rootPath: join(__dirname, "..", "store/facturas"),
-      serveRoot: "/api/v1/facturas",
+
+    
+    ServeStaticModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService): ServeStaticModuleOptions[] => {
+        return [
+          {
+            rootPath: configService.get<string>('STATIC_FILES_PATH'),
+            serveRoot: '/api/v1/recursos',
+          },
+        ];
+      },
     }),
-    ServeStaticModule.forRoot({
-      rootPath: join(__dirname, "..", "store/recibos"),
-      serveRoot: "/api/v1/recibos",
-    }),
-    ServeStaticModule.forRoot({
-      rootPath: join(__dirname, "..", "store/logos"),
-      serveRoot: "/api/v1/logos",
-    }),
+
     PagosModule,
     EmpresaModule,
     ConfigModule.forRoot({

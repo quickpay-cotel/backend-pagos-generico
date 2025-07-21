@@ -12,10 +12,10 @@ export class DeudasController {
     const { tipoPago, parametroBusqueda } = body;
     return this.deudasService.buscarDatosCliente(tipoPago, parametroBusqueda);
   }
-  @Post('deuda-cliente')
+  @Post('cobros-pendiente')
   async DeudaCliente(@Body() body: ConsultaDeudaRequestDto) {
     const { tipoPago, parametroBusqueda } = body;
-    return this.deudasService.buscarDeudaCliente(tipoPago, parametroBusqueda);
+    return this.deudasService.cobrosPendientesByCriterioBusqueda(tipoPago, parametroBusqueda);
   }
   @Post('generar-qr')
   async generarQr(@Body() generaQrRequestDto: GeneraQrRequestDto) {

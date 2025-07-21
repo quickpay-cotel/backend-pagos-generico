@@ -16,7 +16,8 @@ import { DeudaClienteResponseDto } from './dto/response/deuda-cliente.response.d
 
 @Injectable()
 export class DeudasService {
-  private storePath = path.posix.join(process.cwd(), 'store');
+  //private storePath = path.posix.join(process.cwd(), 'store');
+  private storePath = process.env.STATIC_FILES_PATH;
 
   constructor(
     private readonly pagosDeudasRepository: PagosDeudasRepository,
@@ -28,7 +29,7 @@ export class DeudasService {
 
   async buscarDatosCliente(tipoPago: string, parametroBusqueda: string): Promise<DatosClienteResponseDto> {
     try {
-      const deudas = await this.pagosDeudasRepository.findByCodClienteOrNumeroDocumento(parametroBusqueda, parseInt(tipoPago));
+      const deudas = await this.pagosDeudasRepository.datosClienteByCriterioBusqueda(parametroBusqueda, parseInt(tipoPago));
       return {
         codigoCliente: deudas[0].codigo_cliente,
         nombreCompleto: deudas[0].nombre_completo,
@@ -43,10 +44,10 @@ export class DeudasService {
       throw new HttpException('No se encontraron registros de cliente.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
-  async buscarDeudaCliente(tipoPago: string, parametroBusqueda: string): Promise<DeudaClienteResponseDto[]> {
+  async cobrosPendientesByCriterioBusqueda(tipoPago: string, parametroBusqueda: string): Promise<DeudaClienteResponseDto[]> {
     console.log(tipoPago);
     try {
-      const deudas = await this.pagosDeudasRepository.deudasPendientesByCriterioBusqueda(parametroBusqueda, parseInt(tipoPago));
+      const deudas = await this.pagosDeudasRepository.cobrosPendientesByCriterioBusqueda(parametroBusqueda, parseInt(tipoPago));
       return deudas.map((obj) => ({
         deudaId: obj.deuda_id,
         codigoProducto: obj.codigo_producto,
@@ -55,7 +56,7 @@ export class DeudasService {
         cantidad: obj.cantidad,
         precioUnitario: obj.precio_unitario,
         montoDescuento: obj.monto_descuento ?? 0,
-        montoTotal: parseFloat(obj.precio_unitario) * parseFloat(obj.cantidad ?? 1) - parseFloat(obj.monto_descuento ?? 0),
+        montoTotal: obj.monto_total,
         email: obj.email,
         telefono: obj.telefono,
         fechaRegistro: obj.fecha_registro,
@@ -70,36 +71,28 @@ export class DeudasService {
     const idTransaccion = '';
     try {
       const funcionesGenerales = new FuncionesGenerales();
+
+      // si es 5 pm arriba en fin de mes??? no peude pagar
       const resPuedePagar = funcionesGenerales.puedePagar();
       if (!resPuedePagar.permitido) {
         throw new Error(resPuedePagar.mensaje);
       }
 
-      // obtener deudas
-      const lstDeudas: any = [];
-      for (const deuda_id of generaQrRequestDto.deudaIds) {
-        const deuda = await this.pagosDeudasRepository.findById(deuda_id);
-        if (!deuda) {
-          throw new Error('Deudas no existen registrados en SISTEMA');
-        }
-        lstDeudas.push(deuda);
+      // verifica si algunas cobros ya se ecneuntran pagados
+      let lstCobrosRealizados = await this.pagosDeudasRepository.cobrosRealizadosByDeudasIds(generaQrRequestDto.deudaIds);
+      if (lstCobrosRealizados.length) {
+        throw new Error('Las deudas ya se encuentran pagados');
       }
 
-      // generar qr con BISA
-      //const montoTodal = await lstDeudas.reduce((total, deuda) => total + (parseFloat(deuda.monto) - parseFloat(deuda.monto_descuento ?? 0)), 0);
+      // cobros pendientes
+      let lstCobrosPendientes = await this.pagosDeudasRepository.cobrosPendientesByDeudasIds(generaQrRequestDto.deudaIds);
 
-      const montoTodal = parseFloat(
-        lstDeudas
-          .reduce((acc, deuda) => {
-            const monto = parseFloat(deuda.precio_unitario ?? '0');
-            const cantidad = parseFloat(deuda.cantidad ?? '1');
-            const montoDescuento = parseFloat(deuda.monto_descuento ?? '0');
-            return acc + (monto * cantidad - montoDescuento);
-          }, 0)
-          .toFixed(2),
+      // gnerar QR
+      const montoTodal = parseFloat(lstCobrosPendientes.reduce((acc, deuda) => {
+            return acc + parseFloat(deuda.monto_total);
+          }, 0).toFixed(2),
       );
-
-      const detalleGlosa = lstDeudas.map((item) => item.deuda_id + ' ' + item.codigo_cliente + ' ' + item.periodo).join(', ');
+      const detalleGlosa = lstCobrosPendientes.map((item) => item.deuda_id + '-' + item.codigo_cliente + '-' + item.periodo).join(', ');
       const dataGeneraQr = {
         detalleGlosa: detalleGlosa,
         monto: parseFloat(montoTodal.toFixed(2)),
@@ -118,7 +111,6 @@ export class DeudasService {
 
       // registrar en BD  TRANSACTIONAL
       return await this.db.tx(async (t) => {
-        // registrar QR generado
         const qrGenerado = await this.pagosQrGeneradoRepository.create(
           {
             alias: dataGeneraQr.alias,
@@ -128,7 +120,7 @@ export class DeudasService {
             moneda: dataGeneraQr.moneda,
             tipo_solicitud: dataGeneraQr.tipoSolicitud,
             unico_uso: dataGeneraQr.unicoUso,
-            ruta_qr: this.storePath + '/qr/' + 'qr-' + dataGeneraQr.alias + '.jpg',
+            ruta_qr: 'qr-' + dataGeneraQr.alias + '.jpg',
             id_qr_sip: datosQr.idQr,
             fecha_vencimiento_sip: datosQr.fechaVencimiento,
             banco_destino_sip: datosQr.bancoDestino,
@@ -143,7 +135,7 @@ export class DeudasService {
         );
         if (!qrGenerado) throw new Error('nose pudo registrar QR');
 
-        for (const deuda of lstDeudas) {
+        for (const deuda of lstCobrosPendientes) {
           // reserva deuda
           await this.pagosReservaDeudaRepository.create(
             {
