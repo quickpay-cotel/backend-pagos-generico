@@ -172,7 +172,8 @@ export class PagosService {
         monto: totalAPagar,
         moneda: 'Bs',
         fecha: confirmaPagoQrDto.fechaproceso,
-        logoUrl: process.env.URL_LOGO + datosConfiguracion.logo_filename,
+        //logoUrl: process.env.URL_LOGO + datosConfiguracion.logo_filename,
+        logoUrl: "",
         nombreEmpresa: datosConfiguracion.nombre_empresa,
       };
 
