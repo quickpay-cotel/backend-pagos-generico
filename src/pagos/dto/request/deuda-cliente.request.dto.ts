@@ -2,4 +2,5 @@
 export class ConsultaDeudaRequestDto {
   tipoPago: string ;
   parametroBusqueda: string ;
+  slug: string ;
 }

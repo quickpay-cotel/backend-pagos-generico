@@ -17,7 +17,6 @@ import puppeteer from 'puppeteer';
 
 import { PagosTransaccionesRepository } from 'src/common/repository/pagos/pagos.transacciones.repository';
 import { PagosReservaDeudaRepository } from 'src/common/repository/pagos/pagos.reserva.deuda.repository';
-import { PagosDatosConfirmadoQrRepository } from 'src/common/repository/pagos/pagos.datosconfirmado_qr.repository';
 import { PagosErrorLogsRepository } from 'src/common/repository/pagos/pagos.error_logs.repository';
 import { PagosComprobanteFacturaRepository } from 'src/common/repository/pagos/pagos.comprobante_factura.repository';
 import { PagosDeudasRepository } from 'src/common/repository/pagos/pagos.deudas.repository';
@@ -26,6 +25,9 @@ import { PagosComprobanteReciboRepository } from 'src/common/repository/pagos/pa
 import { IsipassGraphqlService } from 'src/common/external-services/isipass.graphql.service';
 import { FuncionesGenerales } from 'src/common/utils/funciones.generales';
 import axios from 'axios';
+import { PagosTransaccionDeudaRepository } from 'src/common/repository/pagos/pagos.transaccion_deuda.repository';
+import { v4 as uuidv4 } from 'uuid';
+import { PagosDominiosRepository } from 'src/common/repository/pagos/pagos.dominios.repository';
 
 @Injectable()
 export class PagosService {
@@ -39,7 +41,7 @@ export class PagosService {
   constructor(
     private readonly pagosReservaDeudaRepository: PagosReservaDeudaRepository,
     private readonly pagosQrGeneradoRepository: PagosQrGeneradoRepository,
-    private readonly pagosDatosConfirmadoQrRepository: PagosDatosConfirmadoQrRepository,
+  
     private readonly pagosTransaccionesRepository: PagosTransaccionesRepository,
     private readonly pagosComprobanteFacturaRepository: PagosComprobanteFacturaRepository,
     private readonly pagosComprobanteReciboRepository: PagosComprobanteReciboRepository,
@@ -49,6 +51,8 @@ export class PagosService {
     private readonly usuarioEmpresaConfiguracionRepository: UsuarioEmpresaConfiguracionRepository,
     private readonly isipassGraphqlService: IsipassGraphqlService,
     private readonly emailService: EmailService,
+    private readonly pagosTransaccionDeudaRepository: PagosTransaccionDeudaRepository,
+    private readonly pagosDominiosRepository:PagosDominiosRepository,
     @Inject('DB_CONNECTION') private db: IDatabase<any>,
   ) {}
 
@@ -57,55 +61,70 @@ export class PagosService {
     const fechaInicio = new Date();
     let correoCliente = 'sinemailcotel@quickpay.com.bo';
     let transactionInsert: any;
+    const myUuid = uuidv4();
     try {
-      // REGISTRAR CONFIRMACIÓN DE PAGO
+
+      // verificar si el alias es parte de este pago?
       const qrGenerado = await this.pagosQrGeneradoRepository.findByAlias(confirmaPagoQrDto.alias);
       if (!qrGenerado) throw new Error('QR no generado por QUICKPAY');
 
-      correoCliente = qrGenerado.email;
+      // verificar monto del QR
       if (qrGenerado.monto != confirmaPagoQrDto.monto) throw new Error('Monto no es igual al QR generado');
 
-      const deudasReservados = await this.pagosReservaDeudaRepository.findByQrGeneradoId(qrGenerado.qr_generado_id);
-      if (!deudasReservados.length) throw new Error('No existe pagos reservados');
+      // verificar deudas reservados
+      const deudasReservados = await this.pagosReservaDeudaRepository.findByFilters({
+        qr_generado_id: qrGenerado.qr_generado_id,
+        estado_reserva_id:1002, //RESERVADO
+        estado_id: 1000,
+      });
+      if(deudasReservados.length==0) throw new Error('No existe deudas reservados');
+      
+      // deuda fue pagado anteriormente???
+      const deudasIds = deudasReservados.map(d => d.deuda_id);
+      const cobrosRealizados = await this.pagosTransaccionesRepository.cobrosRealizadosByDeudasIds(deudasIds);
+      if(cobrosRealizados.length>0) throw new Error('Deudas ya fueron pagados');
 
-      const transaccion = await this.pagosTransaccionesRepository.findByAlias(confirmaPagoQrDto.alias);
-      if (transaccion.length > 0) throw new Error('Transacción ya se encuentra Registrado en QUICKPAY');
-
+      // notificamos al clientee
       await this.notificationsGateway.sendNotification('notification', {
         alias: confirmaPagoQrDto.alias,
         mensaje: 'PROCESANDO PAGO',
       });
 
+
       await this.db.tx(async (t) => {
-        const insertConfirmQr = await this.pagosDatosConfirmadoQrRepository.create({
-          qr_generado_id: qrGenerado.qr_generado_id,
-          alias_sip: confirmaPagoQrDto.alias,
-          numero_orden_originante_sip: confirmaPagoQrDto.numeroOrdenOriginante,
-          monto_sip: confirmaPagoQrDto.monto,
-          id_qr_sip: confirmaPagoQrDto.idQr,
-          moneda_sip: confirmaPagoQrDto.moneda,
-          fecha_proceso_sip: confirmaPagoQrDto.fechaproceso,
-          cuenta_cliente_sip: confirmaPagoQrDto.cuentaCliente,
-          nombre_cliente_sip: confirmaPagoQrDto.nombreCliente,
-          documento_cliente_sip: confirmaPagoQrDto.documentoCliente,
-          json_sip: confirmaPagoQrDto,
-          estado_id: 1000,
-        });
         // registra transaccion realizado
-        transactionInsert = await this.pagosTransaccionesRepository.create({
-          datosconfirmado_qr_id: insertConfirmQr.datosconfirmado_qr_id,
-          metodo_pago_id: 1008, // QR
-          medio_pago_id : 1019, // EN LINEA
-          monto_pagado: confirmaPagoQrDto.monto,
-          moneda: confirmaPagoQrDto.moneda,
-          estado_transaccion_id: 1010, // PAGO RECIBIDO
-          estado_id: 1000,
-        });
+        transactionInsert = await this.pagosTransaccionesRepository.create(
+          {
+            alias_pago: confirmaPagoQrDto.alias,
+            codigo_pago: myUuid,
+            origen_pago_id: 1006, // EN LINEA
+            metodo_pago_id: 1008, // QR
+            monto_pagado: confirmaPagoQrDto.monto,
+            moneda: confirmaPagoQrDto.moneda,
+            estado_transaccion_id: 1012, // PAGADO
+            correo_notificacion: qrGenerado.correo_notificacion,
+            estado_id: 1000,
+          },
+          t,
+        );
+
+        // registarr transaccion deudaaaa
+        for (const deudaReservado of deudasReservados) {
+          await this.pagosTransaccionDeudaRepository.create(
+            {
+              transaccion_id: transactionInsert.transaccion_id,
+              deuda_id: deudaReservado.deuda_id,
+              estado_id: 1000,
+            },
+            t,
+          );
+        }
 
         // la reserva pasa ser PAGADO
         for (const deudaReservado of deudasReservados) {
-          await this.pagosReservaDeudaRepository.cambiarEstadoReservaByDeudaId(deudaReservado.deuda_id, 1005);
+          await this.pagosReservaDeudaRepository.update(deudaReservado.reserva_deuda_id, { estado_reserva_id:1003 }); // PAGADO
         }
+
       });
     } catch (error) {
       await this.pagosErrorLogsRepository.create({
@@ -123,13 +142,11 @@ export class PagosService {
 
     // ============================
 
-    const vNumeroUnico = FuncionesFechas.generarNumeroUnico();
-
     // GENERAR FACTURA
-    await this.generarFacturaISIPASS(confirmaPagoQrDto.alias, transactionInsert.transaccion_id, vNumeroUnico + '');
+    await this.generarFacturaISIPASS(confirmaPagoQrDto.alias, transactionInsert.transaccion_id, myUuid);
 
     // GENERAR RECIBOS
-    await this.generarRecibo(confirmaPagoQrDto.alias, transactionInsert.transaccion_id, vNumeroUnico + '');
+    await this.generarRecibo(confirmaPagoQrDto.alias, transactionInsert.transaccion_id, myUuid);
 
     // NOTIFICAR POR SOCKET AL FRONTEND
     const datosPago = {
@@ -146,14 +163,13 @@ export class PagosService {
       datosPago: datosPago,
       mensaje: 'PAGO REALIZADO',
     });
-    // confirmar pagooo
-    this.pagosTransaccionesRepository.cambiarEstadoTransactionById(transactionInsert.transaccion_id, 1009);  // PAGADO
+    
 
     // NOTIFICAR POR CORREO AL CLIENTE
     try {
-      const reciboPath = path.join(this.storePath + '/recibos/' + 'recibo-' + confirmaPagoQrDto.alias + '_' + vNumeroUnico + '.pdf');
-      const facturaPathPdf = path.join(this.storePath + '/facturas/' + 'factura-' + confirmaPagoQrDto.alias + '_' + vNumeroUnico + '.pdf');
-      const facturaPathXml = path.join(this.storePath + '/facturas/' + 'factura-' + confirmaPagoQrDto.alias + '_' + vNumeroUnico + '.xml');
+      const reciboPath = path.join(this.storePath + '/recibos/' + 'recibo-' + myUuid + '.pdf');
+      const facturaPathPdf = path.join(this.storePath + '/facturas/' + 'factura-' + myUuid + '.pdf');
+      const facturaPathXml = path.join(this.storePath + '/facturas/' + 'factura-' + myUuid + '.xml');
       const lstDeudas = await this.pagosDeudasRepository.findByAlias(confirmaPagoQrDto.alias);
 
       const totalAPagar = lstDeudas.reduce((acc, item) => {
@@ -173,7 +189,7 @@ export class PagosService {
         moneda: 'Bs',
         fecha: confirmaPagoQrDto.fechaproceso,
         //logoUrl: process.env.URL_LOGO + datosConfiguracion.logo_filename,
-        logoUrl: "",
+        logoUrl: '',
         nombreEmpresa: datosConfiguracion.nombre_empresa,
       };
 
@@ -193,15 +209,6 @@ export class PagosService {
     }
   }
 
-  // Función para reemplazar los marcadores en la plantilla
-  private renderTemplate(templatePath: string, data: any): string {
-    let template = fs.readFileSync(templatePath, 'utf8');
-    Object.keys(data).forEach((key) => {
-      const regex = new RegExp(`{{${key}}}`, 'g');
-      template = template.replace(regex, data[key]);
-    });
-    return template;
-  }
   private formatearFechaProcesadoDeSIP(dateString: string) {
     // Convertir la cadena en un objeto Date
     const date = new Date(dateString);
@@ -218,108 +225,19 @@ export class PagosService {
 
     return formattedDate;
   }
-  private async generarRecibo_old(vAlias: string, vTransactionId: number, vNumeroUnico: string): Promise<any> {
-    const ipServidor = os.hostname();
-    const fechaInicio = new Date();
-    let montoTotalPagado: number = 0; // Inicializar el total pagado
-    try {
-      // Generar contenido HTML dinámico para RECIBO
 
-      const transaccion = await this.pagosTransaccionesRepository.findByAlias(vAlias);
-      const datosDeuda = await this.pagosDeudasRepository.findByAlias(vAlias);
-
-      if (datosDeuda.length > 0) {
-        const datosConfiguracion = await this.usuarioEmpresaConfiguracionRepository.DatosConfiguracionEmpresaByDeudaId(parseInt(datosDeuda[0].deuda_id));
-
-        // Construir las filas de la tabla para todos los items de datosDeuda
-        const tableRows = datosDeuda
-          .map((item) => {
-            const cantidad = parseFloat(item.cantidad ?? '0');
-            const precioUnitario = parseFloat(item.precio_unitario ?? '0');
-            const descuento = parseFloat(item.monto_descuento ?? '0');
-            const montoFinal = cantidad * precioUnitario - descuento;
-
-            return `
-      <tr>
-        <td>${item.descripcion ?? ''}</td>
-        <td style="text-align: center;">${item.periodo ?? ''}</td>
-        <td style="text-align: center;">${cantidad}</td>
-        <td style="text-align: center;">${precioUnitario.toFixed(2)}</td>
-        <td style="text-align: center;">${descuento.toFixed(2)}</td>
-        <td style="text-align: right;">${montoFinal.toFixed(2)}</td>
-      </tr>
-    `;
-          })
-          .join('');
-
-        // Calcular el total pagado correctamente
-        const totalPagado = datosDeuda
-          .reduce((acc, item) => {
-            const cantidad = parseFloat(item.cantidad ?? '0');
-            const precioUnitario = parseFloat(item.precio_unitario ?? '0');
-            const descuento = parseFloat(item.monto_descuento ?? '0');
-            const montoFinal = cantidad * precioUnitario - descuento;
-            return acc + montoFinal;
-          }, 0)
-          .toFixed(2);
-
-        montoTotalPagado = totalPagado;
-
-        const htmlContent = this.renderTemplate(this.plantillasPath + '/recibo.html', {
-          nroRecibo: vAlias.slice(-8) ?? 0,
-          nombreComercio: datosConfiguracion.nombre_empresa,
-          nombreCliente: datosDeuda[0].nombre_completo ?? '',
-          logo: datosConfiguracion.logo_base64 ?? '',
-          concepto: datosDeuda[0].tipo_pago,
-          fechaPago: FuncionesFechas.obtenerFechaFormato,
-          metodoPago: 'QR',
-          tableRows,
-          totalPagado,
-        });
-        // modo ROOT  no es recomendable, pero pide el almalinux
-        const browser = await puppeteer.launch({
-          args: ['--no-sandbox', '--disable-setuid-sandbox'],
-        });
-        const page = await browser.newPage();
-        await page.setContent(htmlContent, { waitUntil: 'load' });
-        const pdfBuffer = Buffer.from(await page.pdf({ format: 'A4' }));
-        await browser.close();
-        // Guardar el buffer como un archivo PDF
-        fs.writeFileSync(this.storePath + '/recibos/' + 'recibo-' + vAlias + '_' + vNumeroUnico + '.pdf', pdfBuffer);
-        await this.pagosComprobanteReciboRepository.create({
-          identificador: 0,
-          transaccion_id: transaccion[0].transaccion_id,
-          ruta_pdf: this.storePath + '/recibos/' + 'recibo-' + vAlias + '_' + vNumeroUnico + '.pdf',
-          fecha_emision: new Date(),
-          estado_id: 1000,
-        });
-      }
-      this.pagosTransaccionesRepository.cambiarEstadoTransactionById(vTransactionId, 1012); // PAGO GENERA RECIBO
-    } catch (error) {
-      this.pagosTransaccionesRepository.cambiarEstadoTransactionById(vTransactionId, 1013); // PAGO FALLADO
-      await this.pagosErrorLogsRepository.create({
-        alias: vAlias,
-        metodo: this.getMethodName() + ' - generar recibo',
-        mensaje: error.message,
-        stack_trace: error.stack,
-        ip_servidor: ipServidor,
-        fecha_inicio: fechaInicio,
-        fecha_fin: new Date(),
-        parametros: { alias: vAlias, transactin_id: vTransactionId },
-      });
-    }
-  }
-
-  private async generarRecibo(vAlias: string, vTransactionId: number, vNumeroUnico: string): Promise<any> {
+  private async generarRecibo(vAlias: string, vTransactionId: number,  myUuid: string): Promise<any> {
     const ipServidor = os.hostname();
     const fechaInicio = new Date();
     try {
-      const transaccion = await this.pagosTransaccionesRepository.findByAlias(vAlias);
-      const datosDeuda = await this.pagosDeudasRepository.findByAlias(vAlias);
+      const transaccion = await this.pagosTransaccionesRepository.findByFilters({alias_pago:vAlias,estado_id: 1000} );
+      
+      const lstDeudas = await this.pagosDeudasRepository.findByAlias(vAlias);
 
-      let nombreRecibo = 'recibo-' + vAlias + '_' + vNumeroUnico + '.pdf';
+      let nombreRecibo = `recibo-${ myUuid }.pdf`;
+      const tipoPago = await this.pagosDominiosRepository.findById(lstDeudas[0].tipo_pago_id);
 
-      const datosPersonaEmpresa = await this.usuarioEmpresaConfiguracionRepository.DatosConfiguracionEmpresaByDeudaId(parseInt(datosDeuda[0].deuda_id));
+      const datosPersonaEmpresa = await this.usuarioEmpresaConfiguracionRepository.DatosConfiguracionEmpresaByDeudaId(parseInt(lstDeudas[0].deuda_id));
 
       const funcionesGenerales = new FuncionesGenerales();
       const base64Limpio = funcionesGenerales.limpiarBase64(datosPersonaEmpresa.logo_base64);
@@ -328,11 +246,12 @@ export class PagosService {
         P_logo_empresa_base64: base64Limpio,
         P_nombre_empresa: datosPersonaEmpresa.nombre_empresa,
         P_fecha_pago: transaccion[0].fecha_transaccion,
-        P_nombre_cliente: datosDeuda[0].nombre_completo,
-        P_concepto: datosDeuda[0].tipo_pago,
+        P_nombre_cliente: lstDeudas[0].nombre_completo,
+        P_concepto: tipoPago.descripcion,
       };
 
-      const detalleDeudas = datosDeuda.map((item) => {
+
+      const detalleDeudas = lstDeudas.map((item) => {
         const cantidad = parseInt(item.cantidad ?? '0'); // entero, se queda como número
         const precioUnitario = parseFloat(item.precio_unitario ?? '0');
         const descuento = parseFloat(item.monto_descuento ?? '0');
@@ -347,6 +266,8 @@ export class PagosService {
           monto_total: montoTotal.toFixed(2), // string "10.00"
         };
       });
+
+
 
       const payload = {
         data: detalleDeudas,
@@ -369,12 +290,11 @@ export class PagosService {
         transaccion_id: transaccion[0].transaccion_id,
         ruta_pdf: nombreRecibo,
         fecha_emision: new Date(),
+        estado_recibo_id: 1017, // VIGENTE
         estado_id: 1000,
       });
-
-      this.pagosTransaccionesRepository.cambiarEstadoTransactionById(vTransactionId, 1012); // PAGO GENERA RECIBO
     } catch (error) {
-      this.pagosTransaccionesRepository.cambiarEstadoTransactionById(vTransactionId, 1013); // PAGO FALLADO
+       this.pagosTransaccionesRepository.update(vTransactionId,{estado_transaccion_id:1013}); //FACTURA NO GENERADO
       await this.pagosErrorLogsRepository.create({
         alias: vAlias,
         metodo: this.getMethodName() + ' - generar recibo',
@@ -415,7 +335,7 @@ export class PagosService {
       throw new HttpException(error, HttpStatus.NOT_FOUND);
     }
   }
-  private async generarFacturaISIPASS(vAlias: string, vTransactionId: number, vNumeroUnico: string): Promise<any> {
+  private async generarFacturaISIPASS(vAlias: string, vTransactionId: number, myUuid: string): Promise<any> {
     const ipServidor = os.hostname();
     const fechaInicio = new Date();
     try {
@@ -444,8 +364,8 @@ export class PagosService {
       let xmlBase64: string;
       let filePathPdf: string;
       let filePathXml: string;
-      let nombreFacturaPdf = `factura-${vAlias}_${vNumeroUnico}.pdf`;
-      let nombreFacturaXml = `factura-${vAlias}_${vNumeroUnico}.xml`;
+      let nombreFacturaPdf = `factura-${myUuid}.pdf`;
+      let nombreFacturaXml = `factura-${myUuid}.xml`;
 
       try {
         const funcionesGenerales = new FuncionesGenerales();
@@ -463,9 +383,9 @@ export class PagosService {
       }
 
       // REGISTRA FACTURA
-      let transaccion = await this.pagosTransaccionesRepository.findByAlias(vAlias);
+      //let transaccion = await this.pagosTransaccionesRepository.findByAlias(vAlias);
       await this.pagosComprobanteFacturaRepository.create({
-        transaccion_id: transaccion[0].transaccion_id,
+        transaccion_id: vTransactionId,
 
         // Datos que retorna ISIPASS
         codigo_cliente: facturaCompraVentaCreate?.cliente?.codigoCliente,
@@ -489,12 +409,12 @@ export class PagosService {
         // otros campos
         ruta_xml: nombreFacturaXml,
         ruta_pdf: nombreFacturaPdf,
-
+        estado_factura_id:1015,
         estado_id: 1000,
       });
-      this.pagosTransaccionesRepository.cambiarEstadoTransactionById(vTransactionId, 1011); // PAGO GENERA FACTURA
+      
     } catch (error) {
-      this.pagosTransaccionesRepository.cambiarEstadoTransactionById(vTransactionId, 1013); //PAGO FALLADO
+      this.pagosTransaccionesRepository.update(vTransactionId,{estado_transaccion_id:1014}); //FACTURA NO GENERADO
       await this.pagosErrorLogsRepository.create({
         alias: vAlias,
         metodo: this.getMethodName() + ' - generar factura',

@@ -26,9 +26,7 @@ export class PagosComprobanteReciboRepository {
   async findByAlias(pAlias): Promise<any> {
     const query = `select cr.* from pagos.comprobante_recibo cr  
     inner join pagos.transacciones t on t.transaccion_id  = cr.transaccion_id and t.estado_id = 1000
-    inner join pagos.datosconfirmado_qr dq on dq.datosconfirmado_qr_id = t.datosconfirmado_qr_id and dq.estado_id = 1000
-    inner join pagos.qr_generado qg on qg.qr_generado_id = dq.qr_generado_id and qg.estado_id = 1000
-    where cr.estado_id = 1000 and qg.alias = $1`;
+    where cr.estado_id = 1000 and t.alias_pago = $1`;
     const params = [pAlias];
     const result = await this.db.manyOrNone(query, params);
     return result;

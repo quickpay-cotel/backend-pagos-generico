@@ -23,9 +23,7 @@ ec.color_primario ,ec.color_secundario ,ec.slug_empresa
   async DatosConfiguracionEmpresaByDeudaId(deudaId: number): Promise<any> {
     const query = `select pj.nombre_empresa, pj.nit as nit_empresa,ec.logo_url as logo_filename ,ec.logo_base64, ec.color_primario ,ec.slug_empresa
 from pagos.deudas d 
-inner join pagos.cargas_excel ce on ce.carga_id = d.carga_id and ce.estado_id = 1000
-inner join usuario.usuarios u on u.usuario_id  = ce.usuario_id and u.estado_id = 1000
-inner join usuario.persona_juridica pj on pj.persona_juridica_id = u.persona_juridica_id
+inner join usuario.persona_juridica pj on pj.persona_juridica_id = d.persona_juridica_id
 inner join usuario.empresa_configuracion ec on ec.persona_juridica_id = pj.persona_juridica_id and ec.estado_id = 1000
 where  d.estado_id = 1000 and d.deuda_id = $1 `;
     const params = [deudaId];

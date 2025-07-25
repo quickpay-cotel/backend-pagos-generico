@@ -9,13 +9,13 @@ export class DeudasController {
   constructor(private readonly deudasService: DeudasService) {}
   @Post('datos-cliente')
   async DatosCliente(@Body() body: ConsultaDeudaRequestDto) {
-    const { tipoPago, parametroBusqueda } = body;
-    return this.deudasService.buscarDatosCliente(tipoPago, parametroBusqueda);
+    const { tipoPago, parametroBusqueda,slug } = body;
+    return this.deudasService.buscarDatosCliente(tipoPago, parametroBusqueda,slug);
   }
   @Post('cobros-pendiente')
   async DeudaCliente(@Body() body: ConsultaDeudaRequestDto) {
-    const { tipoPago, parametroBusqueda } = body;
-    return this.deudasService.cobrosPendientesByCriterioBusqueda(tipoPago, parametroBusqueda);
+    const { tipoPago, parametroBusqueda,slug } = body;
+    return this.deudasService.cobrosPendientesByCriterioBusqueda(tipoPago, parametroBusqueda,slug);
   }
   @Post('generar-qr')
   async generarQr(@Body() generaQrRequestDto: GeneraQrRequestDto) {

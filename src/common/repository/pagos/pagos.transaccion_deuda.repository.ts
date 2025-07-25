@@ -1,13 +1,12 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { IDatabase } from 'pg-promise'; // Usamos pg-promise
 @Injectable()
-export class PagosTransaccionesRepository {
+export class PagosTransaccionDeudaRepository {
   private db: IDatabase<any>;
 
   constructor(@Inject('DB_CONNECTION') db: IDatabase<any>) {
     this.db = db; // Inyectamos la conexión de pg-promise
   }
-
   async create(data: Record<string, any>, t?: IDatabase<any>): Promise<any> {
     // Extraer los nombres de las columnas y los valores
     const columnas = Object.keys(data);
@@ -16,14 +15,19 @@ export class PagosTransaccionesRepository {
     const marcadores = columnas.map((_, index) => `$${index + 1}`).join(', ');
     // Crear la consulta SQL dinámica
     const query = `
-          INSERT INTO pagos.transacciones (${columnas.join(', ')})
+          INSERT INTO pagos.transaccion_deuda (${columnas.join(', ')})
           VALUES (${marcadores}) RETURNING *
         `;
-    const result = t ? await t.one(query, params) : await this.db.one(query, params);
+    const result = t
+      ? await t.one(query, params)
+      : await this.db.one(query, params);
     return result;
   }
-
-  async update(id: number, data: Record<string, any>, t?: IDatabase<any>): Promise<any> {
+  async update(
+    id: number,
+    data: Record<string, any>,
+    t?: IDatabase<any>,
+  ): Promise<any> {
     const columnas = Object.keys(data);
     const valores = Object.values(data);
 
@@ -32,24 +36,31 @@ export class PagosTransaccionesRepository {
     }
 
     // Construir SET dinámicamente: "col1 = $1, col2 = $2, ..."
-    const setClause = columnas.map((col, index) => `${col} = $${index + 1}`).join(', ');
+    const setClause = columnas
+      .map((col, index) => `${col} = $${index + 1}`)
+      .join(', ');
 
     // Último parámetro es el ID
     const query = `
-    UPDATE pagos.transacciones
+    UPDATE pagos.transaccion_deuda
     SET ${setClause}
-    WHERE transaccion_id = $${columnas.length + 1}
+    WHERE transaccion_deuda_id = $${columnas.length + 1}
     RETURNING *
   `;
 
     const params = [...valores, id];
 
-    const result = t ? await t.one(query, params) : await this.db.one(query, params);
+    const result = t
+      ? await t.one(query, params)
+      : await this.db.one(query, params);
 
     return result;
   }
 
-  async findByFilters(filters: Record<string, any>, t?: IDatabase<any>): Promise<any[]> {
+  async findByFilters(
+    filters: Record<string, any>,
+    t?: IDatabase<any>,
+  ): Promise<any[]> {
     const keys = Object.keys(filters);
     const values = Object.values(filters);
 
@@ -61,35 +72,15 @@ export class PagosTransaccionesRepository {
     }
 
     const query = `
-    SELECT * FROM pagos.transacciones
+    SELECT * FROM pagos.transaccion_deuda
     ${whereClause}
   `;
 
-    const result = t ? await t.any(query, values) : await this.db.any(query, values);
+    const result = t
+      ? await t.any(query, values)
+      : await this.db.any(query, values);
 
     return result;
   }
 
-  async cobrosRealizadosByDeudasIds(deudasIds: number[]): Promise<any> {
-    const query = `
-  SELECT 
-      t.transaccion_id,
-      t.alias_pago,
-      t.codigo_pago,
-      t.origen_pago_id,
-      t.metodo_pago_id,
-      t.monto_pagado,
-      t.moneda,
-      t.estado_transaccion_id,
-      t.correo_enviado,
-      t.fecha_transaccion,
-      t.fecha_registro
-    FROM pagos.transacciones t 
-    INNER JOIN pagos.transaccion_deuda td  
-    ON td.transaccion_id  = t.transaccion_id  AND td.estado_id = 1000
-    where td.deuda_id IN ($1:csv)  and t.estado_id = 1000
-  `;
-    const result = await this.db.manyOrNone(query, [deudasIds]);
-    return result;
-  }
 }

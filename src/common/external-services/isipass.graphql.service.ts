@@ -46,7 +46,7 @@ export class IsipassGraphqlService {
             razonSocial: "${lstDeudas[0].nombre_completo}",
             numeroDocumento: "${lstDeudas[0].numero_documento}",
             complemento: ${lstDeudas[0].complemento_documento ? `"${lstDeudas[0].complemento_documento}"` : null},
-            email: "${qrGenerado.email}",
+            email: "${qrGenerado.correo_notificacion}",
             codigoTipoDocumentoIdentidad: ${tipoDoc}
           },
           codigoExcepcion: 1,

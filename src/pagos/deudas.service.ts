@@ -13,6 +13,7 @@ import { PagosQrGeneradoRepository } from 'src/common/repository/pagos/pagos.qr_
 import { DatosClienteResponseDto } from './dto/response/datos-cliente.response.dto';
 import { GeneraQrRequestDto } from './dto/request/genera-qr.request.dto';
 import { DeudaClienteResponseDto } from './dto/response/deuda-cliente.response.dto';
+import { PagosTransaccionesRepository } from 'src/common/repository/pagos/pagos.transacciones.repository';
 
 @Injectable()
 export class DeudasService {
@@ -21,15 +22,19 @@ export class DeudasService {
 
   constructor(
     private readonly pagosDeudasRepository: PagosDeudasRepository,
+    private readonly pagosTransaccionesRepository:PagosTransaccionesRepository,
     private readonly pagosReservaDeudaRepository: PagosReservaDeudaRepository,
     private readonly apiSipService: ApiSipService,
     private readonly pagosQrGeneradoRepository: PagosQrGeneradoRepository,
     @Inject('DB_CONNECTION') private db: IDatabase<any>,
   ) {}
 
-  async buscarDatosCliente(tipoPago: string, parametroBusqueda: string): Promise<DatosClienteResponseDto> {
+  async buscarDatosCliente(tipoPago: string, parametroBusqueda: string, slug:string): Promise<DatosClienteResponseDto> {
     try {
-      const deudas = await this.pagosDeudasRepository.datosClienteByCriterioBusqueda(parametroBusqueda, parseInt(tipoPago));
+      const deudas = await this.pagosDeudasRepository.datosClienteByCriterioBusqueda(parametroBusqueda, parseInt(tipoPago),slug);
+      if(deudas.length==0){
+        throw new HttpException('No se encontraron registros de cliente.', HttpStatus.INTERNAL_SERVER_ERROR);
+      }
       return {
         codigoCliente: deudas[0].codigo_cliente,
         nombreCompleto: deudas[0].nombre_completo,
@@ -44,10 +49,10 @@ export class DeudasService {
       throw new HttpException('No se encontraron registros de cliente.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
-  async cobrosPendientesByCriterioBusqueda(tipoPago: string, parametroBusqueda: string): Promise<DeudaClienteResponseDto[]> {
+  async cobrosPendientesByCriterioBusqueda(tipoPago: string, parametroBusqueda: string, slug:string): Promise<DeudaClienteResponseDto[]> {
     console.log(tipoPago);
     try {
-      const deudas = await this.pagosDeudasRepository.cobrosPendientesByCriterioBusqueda(parametroBusqueda, parseInt(tipoPago));
+      const deudas = await this.pagosDeudasRepository.cobrosPendientesByCriterioBusqueda(parametroBusqueda, parseInt(tipoPago),slug);
       return deudas.map((obj) => ({
         deudaId: obj.deuda_id,
         codigoProducto: obj.codigo_producto,
@@ -59,6 +64,7 @@ export class DeudasService {
         montoTotal: obj.monto_total,
         email: obj.email,
         telefono: obj.telefono,
+        generaFactura:obj.genera_factura?'SI':'NO',
         fechaRegistro: obj.fecha_registro,
       }));
     } catch (error) {
@@ -79,7 +85,7 @@ export class DeudasService {
       }
 
       // verifica si algunas cobros ya se ecneuntran pagados
-      let lstCobrosRealizados = await this.pagosDeudasRepository.cobrosRealizadosByDeudasIds(generaQrRequestDto.deudaIds);
+      let lstCobrosRealizados = await this.pagosTransaccionesRepository.cobrosRealizadosByDeudasIds(generaQrRequestDto.deudaIds);
       if (lstCobrosRealizados.length) {
         throw new Error('Las deudas ya se encuentran pagados');
       }
@@ -92,6 +98,7 @@ export class DeudasService {
             return acc + parseFloat(deuda.monto_total);
           }, 0).toFixed(2),
       );
+
       const detalleGlosa = lstCobrosPendientes.map((item) => item.deuda_id + '-' + item.codigo_cliente + '-' + item.periodo).join(', ');
       const dataGeneraQr = {
         detalleGlosa: detalleGlosa,
@@ -127,8 +134,7 @@ export class DeudasService {
             cuenta_destino_sip: datosQr.cuentaDestino,
             id_transaccion_sip: datosQr.idTransaccion,
             es_imagen_sip: datosQr.esImagen,
-            email: generaQrRequestDto.email, // este correo vendra dela interfaz
-            telefono: generaQrRequestDto.telefono,
+            correo_notificacion:generaQrRequestDto.email,
             estado_id: 1000,
           },
           t,
@@ -141,7 +147,7 @@ export class DeudasService {
             {
               deuda_id: deuda.deuda_id,
               qr_generado_id: qrGenerado.qr_generado_id,
-              estado_reserva_id: 1004, // RESERVADO
+              estado_reserva_id: 1002, // RESERVADO
               fecha_expiracion: new Date(),
               estado_id: 1000,
             },

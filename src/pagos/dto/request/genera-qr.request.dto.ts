@@ -8,5 +8,5 @@ export class GeneraQrRequestDto {
   @Type(() => Number)     // Transforma cada elemento del array a Number
   deudaIds: number[];
   email:string;
-  telefono:string;
+//  telefono:string;
 }
