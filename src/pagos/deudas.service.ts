@@ -53,6 +53,9 @@ export class DeudasService {
     console.log(tipoPago);
     try {
       const deudas = await this.pagosDeudasRepository.cobrosPendientesByCriterioBusqueda(parametroBusqueda, parseInt(tipoPago),slug);
+      if(deudas.length==0){
+       return [];
+      }
       return deudas.map((obj) => ({
         deudaId: obj.deuda_id,
         codigoProducto: obj.codigo_producto,
@@ -69,7 +72,7 @@ export class DeudasService {
       }));
     } catch (error) {
       console.log(error);
-      throw new HttpException('No se encontraron registros de deuda.', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException('Error al momento de obtener deudas', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 

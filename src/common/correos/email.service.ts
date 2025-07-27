@@ -28,7 +28,7 @@ export class EmailService {
         .replace('{{fecha}}', FuncionesFechas.obtenerFechaFormato)
         .replace('{{anio_actual}}', new Date().getFullYear().toString())
         .replace('{{nombre_comercio}}', paymentData.nombreEmpresa)
-        .replace('{{logo_url}}', paymentData.logoUrl);
+        //.replace('{{logo_url}}', paymentData.logoUrl);
 
       const attachments: any[] = [];
 
@@ -46,8 +46,6 @@ export class EmailService {
       addAttachmentIfExists(reciboPath, 'application/pdf');
       addAttachmentIfExists(facturaPathPdf, 'application/pdf');
       addAttachmentIfExists(facturaPathXml, 'application/xml');
-
-
 
       const response = await client.send({
         from: sender,

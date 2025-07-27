@@ -193,8 +193,10 @@ export class PagosService {
         nombreEmpresa: datosConfiguracion.nombre_empresa,
       };
 
-      let correoEnviado = await this.emailService.sendMailNotifyPaymentAndAttachmentsMailtrap(correoCliente, 'Confirmación de Pago Recibida - Pruebas', paymentDataConfirmado, reciboPath, facturaPathPdf, facturaPathXml);
+      let correoEnviado = await this.emailService.sendMailNotifyPaymentAndAttachmentsMailtrap(correoCliente, 'Confirmación de Pago Recibida - Pruebas', 
+        paymentDataConfirmado, reciboPath, facturaPathPdf, facturaPathXml);
       this.pagosTransaccionesRepository.update(transactionInsert.transaccion_id, { correo_enviado: correoEnviado });
+
     } catch (error) {
       await this.pagosErrorLogsRepository.create({
         alias: confirmaPagoQrDto.alias,
@@ -245,7 +247,7 @@ export class PagosService {
       let parametros = {
         P_logo_empresa_base64: base64Limpio,
         P_nombre_empresa: datosPersonaEmpresa.nombre_empresa,
-        P_fecha_pago: transaccion[0].fecha_transaccion,
+        P_fecha_pago: FuncionesFechas.formatDate(transaccion[0].fecha_transaccion, 'dd/MM/yyyy HH:mm'),
         P_nombre_cliente: lstDeudas[0].nombre_completo,
         P_concepto: tipoPago.descripcion,
       };
@@ -339,7 +341,7 @@ export class PagosService {
     const ipServidor = os.hostname();
     const fechaInicio = new Date();
     try {
-      const datosDeuda = await this.pagosDeudasRepository.findByAlias(vAlias);
+      let datosDeuda = await this.pagosDeudasRepository.findByAlias(vAlias);
       if (datosDeuda.length == 0) {
         throw new Error('No se encontraron deudas para generar la factura');
       }
@@ -347,6 +349,13 @@ export class PagosService {
       if (!qrGenerado) {
         throw new Error('QR no generado por QUICKPAY al generar factura');
       }
+
+      datosDeuda = datosDeuda.filter(r => r.genera_factura === true);
+
+      if(datosDeuda.length == 0){
+        throw new Error('No se encontraron deudas para generar la factura');
+      }
+
       const resFacGenerado = await this.isipassGraphqlService.crearFactura(datosDeuda, qrGenerado);
 
       const facturaCompraVentaCreate = resFacGenerado?.data?.facturaCompraVentaCreate || {};
